@@ -83,12 +83,18 @@ class MockCliResult:
 
 @dataclass
 class MockCliRunner:
-    """Mock CLI runner that captures invocations."""
+    """Mock CLI runner that captures invocations.
+
+    Auto-detects ANNCSU query calls (args containing "accesso") and returns
+    query_result for those when set, otherwise falls back to result.
+    results_sequence overrides all auto-detection when provided.
+    """
 
     invocations: list[tuple[Any, list[str]]] = field(default_factory=list)
     result: MockCliResult = field(default_factory=MockCliResult)
     results_sequence: list[MockCliResult] = field(default_factory=list)
     _call_count: int = 0
+    query_result: "MockCliResult | None" = None
 
     def invoke(self, app: Any, args: list[str]) -> MockCliResult:
         self.invocations.append((app, args))
@@ -96,6 +102,8 @@ class MockCliRunner:
             result = self.results_sequence[self._call_count % len(self.results_sequence)]
             self._call_count += 1
             return result
+        if self.query_result is not None and "accesso" in args:
+            return self.query_result
         return self.result
 
 
@@ -202,8 +210,14 @@ def mock_settings() -> MockSettings:
 
 @pytest.fixture
 def mock_cli_runner() -> MockCliRunner:
-    """Create a mock CLI runner."""
-    return MockCliRunner()
+    """Create a mock CLI runner with auto-detection for ANNCSU query calls.
+
+    - "pa accesso" calls return JSON with different coords (to trigger updates)
+    - all other calls (auth, coordinate update) return exit_code=0 with "OK"
+    """
+    return MockCliRunner(
+        query_result=MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]'),
+    )
 
 
 @pytest.fixture

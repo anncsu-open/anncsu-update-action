@@ -32,8 +32,6 @@ from conftest import (
     MockCliResult,
     MockGeometry,
     MockAnncsuConsultazione,
-    MockAnncsuResponse,
-    MockAnncsuRecord,
 )
 
 
@@ -176,13 +174,16 @@ class TestProcessEntry:
         )
 
         assert result is True
-        # Verify CLI was called
-        assert len(mock_cli_runner.invocations) == 1
-        app, args = mock_cli_runner.invocations[0]
-        assert "coordinate" in args
-        assert "update" in args
-        assert "--codcom" in args
-        assert "I501" in args
+        # Verify CLI was called: first query, then coordinate update
+        assert len(mock_cli_runner.invocations) == 2
+        _, query_args = mock_cli_runner.invocations[0]
+        assert "pa" in query_args
+        assert "accesso" in query_args
+        _, update_args = mock_cli_runner.invocations[1]
+        assert "coordinate" in update_args
+        assert "update" in update_args
+        assert "--codcom" in update_args
+        assert "I501" in update_args
 
     def test_process_entry_update_cli_failure(
         self,
@@ -192,17 +193,15 @@ class TestProcessEntry:
         mock_geodiff,
         mock_wkb_loader,
         mock_logger,
+        mock_anncsu_consultazione,
     ):
-        # Mock SDK with coordinates that don't match to force CLI call
-        mock_sdk = MockAnncsuConsultazione()
-        mock_sdk.pathparam.response = MockAnncsuResponse(
-            res="OK",
-            message="",
-            data=[MockAnncsuRecord(coord_x=10.0, coord_y=50.0)],  # Different from mock_wkb_loader
+        # Query succeeds with different coords (forces update), update call fails
+        cli_runner = MockCliRunner(
+            results_sequence=[
+                MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]'),  # query OK
+                MockCliResult(exit_code=1, output="Update failed"),  # update fails
+            ]
         )
-
-        # Create CLI runner that returns failure
-        cli_runner = MockCliRunner(result=MockCliResult(exit_code=1, output="Auth failed"))
 
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
         entry = geodiff.geodiff[0]
@@ -212,14 +211,14 @@ class TestProcessEntry:
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
-            anncsu_sdk=mock_sdk,
+            anncsu_sdk=mock_anncsu_consultazione,
             geodiff=mock_geodiff,
             wkb_loader=mock_wkb_loader,
             logger=mock_logger,
         )
 
         assert result is False
-        # Check error was logged
+        # Check error was logged for coordinate update failure
         error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
         assert any("failed" in msg.lower() for msg in error_messages)
 
@@ -421,16 +420,16 @@ class TestProcessEntry:
         self,
         geodiff_real_coord_update_json,
         mock_settings,
-        mock_cli_runner,
         mock_cli_app,
         mock_geodiff,
         mock_wkb_loader,
         mock_logger,
+        mock_anncsu_consultazione,
     ):
-        """Test when ANNCSU SDK returns no records for the address_id."""
-        # Mock SDK that returns empty data
-        mock_sdk = MockAnncsuConsultazione()
-        mock_sdk.pathparam.response = MockAnncsuResponse(res="OK", message="", data=[])
+        """Test when ANNCSU CLI query returns no records for the address_id."""
+        cli_runner = MockCliRunner(
+            query_result=MockCliResult(exit_code=0, output="[]"),
+        )
 
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
         entry = geodiff.geodiff[0]
@@ -438,9 +437,9 @@ class TestProcessEntry:
         result = process_entry(
             entry=entry,
             settings=mock_settings,
-            cli_runner=mock_cli_runner,
+            cli_runner=cli_runner,
             cli_app=mock_cli_app,
-            anncsu_sdk=mock_sdk,
+            anncsu_sdk=mock_anncsu_consultazione,
             geodiff=mock_geodiff,
             wkb_loader=mock_wkb_loader,
             logger=mock_logger,
@@ -454,19 +453,18 @@ class TestProcessEntry:
         self,
         geodiff_real_coord_update_json,
         mock_settings,
-        mock_cli_runner,
         mock_cli_app,
         mock_geodiff,
         mock_wkb_loader,
         mock_logger,
+        mock_anncsu_consultazione,
     ):
-        """Test when ANNCSU SDK returns multiple records for the address_id."""
-        # Mock SDK that returns multiple records
-        mock_sdk = MockAnncsuConsultazione()
-        mock_sdk.pathparam.response = MockAnncsuResponse(
-            res="OK",
-            message="",
-            data=[MockAnncsuRecord(), MockAnncsuRecord()],
+        """Test when ANNCSU CLI query returns multiple records for the address_id."""
+        cli_runner = MockCliRunner(
+            query_result=MockCliResult(
+                exit_code=0,
+                output='[{"coordX": 10.0, "coordY": 50.0}, {"coordX": 11.0, "coordY": 51.0}]',
+            ),
         )
 
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
@@ -475,9 +473,9 @@ class TestProcessEntry:
         result = process_entry(
             entry=entry,
             settings=mock_settings,
-            cli_runner=mock_cli_runner,
+            cli_runner=cli_runner,
             cli_app=mock_cli_app,
-            anncsu_sdk=mock_sdk,
+            anncsu_sdk=mock_anncsu_consultazione,
             geodiff=mock_geodiff,
             wkb_loader=mock_wkb_loader,
             logger=mock_logger,
@@ -491,19 +489,15 @@ class TestProcessEntry:
         self,
         geodiff_real_coord_update_json,
         mock_settings,
-        mock_cli_runner,
         mock_cli_app,
         mock_geodiff,
         mock_wkb_loader,
         mock_logger,
+        mock_anncsu_consultazione,
     ):
-        """Test when ANNCSU SDK query fails."""
-        # Mock SDK that returns error response
-        mock_sdk = MockAnncsuConsultazione()
-        mock_sdk.pathparam.response = MockAnncsuResponse(
-            res="ERROR",
-            message="Database connection failed",
-            data=[],
+        """Test when ANNCSU CLI query call fails (non-zero exit code)."""
+        cli_runner = MockCliRunner(
+            result=MockCliResult(exit_code=1, output="Query failed"),
         )
 
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
@@ -512,9 +506,9 @@ class TestProcessEntry:
         result = process_entry(
             entry=entry,
             settings=mock_settings,
-            cli_runner=mock_cli_runner,
+            cli_runner=cli_runner,
             cli_app=mock_cli_app,
-            anncsu_sdk=mock_sdk,
+            anncsu_sdk=mock_anncsu_consultazione,
             geodiff=mock_geodiff,
             wkb_loader=mock_wkb_loader,
             logger=mock_logger,
@@ -528,20 +522,19 @@ class TestProcessEntry:
         self,
         geodiff_real_coord_update_json,
         mock_settings,
-        mock_cli_runner,
         mock_cli_app,
         mock_geodiff,
         mock_wkb_loader,
         mock_logger,
+        mock_anncsu_consultazione,
     ):
         """Test when coordinates are within threshold - should skip update."""
-        # Mock SDK that returns record with same coordinates
-        mock_sdk = MockAnncsuConsultazione()
-        # Set coordinates to exactly match what mock_wkb_loader returns
-        mock_sdk.pathparam.response = MockAnncsuResponse(
-            res="OK",
-            message="",
-            data=[MockAnncsuRecord(coord_x=12.34, coord_y=56.78, dug="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=")],
+        # CLI query returns same coordinates as mock_wkb_loader (12.34, 56.78)
+        cli_runner = MockCliRunner(
+            query_result=MockCliResult(
+                exit_code=0,
+                output='[{"coordX": 12.34, "coordY": 56.78}]',
+            ),
         )
 
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
@@ -550,17 +543,17 @@ class TestProcessEntry:
         result = process_entry(
             entry=entry,
             settings=mock_settings,
-            cli_runner=mock_cli_runner,
+            cli_runner=cli_runner,
             cli_app=mock_cli_app,
-            anncsu_sdk=mock_sdk,
+            anncsu_sdk=mock_anncsu_consultazione,
             geodiff=mock_geodiff,
             wkb_loader=mock_wkb_loader,
             logger=mock_logger,
         )
 
         assert result is True
-        # Should not have made CLI call
-        assert len(mock_cli_runner.invocations) == 0
+        # Only the query CLI call should have been made (no update)
+        assert len(cli_runner.invocations) == 1
         info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
         assert any("Coordinates" in msg and "are the same" in msg for msg in info_messages)
 
@@ -672,21 +665,15 @@ class TestProcessAllEntries:
         mock_cli_app,
         mock_geodiff,
         mock_logger,
+        mock_anncsu_consultazione,
     ):
-        # Mock SDK with coordinates set to None to avoid dug parsing
-        mock_sdk = MockAnncsuConsultazione()
-        mock_sdk.pathparam.response = MockAnncsuResponse(
-            res="OK",
-            message="",
-            data=[MockAnncsuRecord(coord_x=None, coord_y=None)],
-        )
-
-        # CLI runner that fails on the second call (update operation)
+        # Entry 1 (update): query succeeds → update succeeds
+        # Entry 2 (insert): invalid geometry → fails before any CLI call
+        # Entry 3 (delete): returns True without CLI calls
         cli_runner = MockCliRunner(
             results_sequence=[
-                MockCliResult(exit_code=0, output="OK"),  # first update succeeds
-                MockCliResult(exit_code=1, output="Failed"),  # second update fails
-                MockCliResult(exit_code=0, output="OK"),  # third (delete) not called
+                MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]'),  # query for entry 1
+                MockCliResult(exit_code=0, output="{}"),  # update for entry 1
             ]
         )
 
@@ -709,11 +696,11 @@ class TestProcessAllEntries:
             geodiff=mock_geodiff,
             wkb_loader=selective_wkb_loader,
             logger=mock_logger,
-            anncsu_sdk=mock_sdk,
+            anncsu_sdk=mock_anncsu_consultazione,
         )
 
         assert len(results) == 3
-        # Second entry should fail
+        # Second entry should fail due to invalid geometry
         assert results[1].success is False
 
 

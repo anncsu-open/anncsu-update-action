@@ -125,7 +125,7 @@ def decode_gpkg_geometry(
         ValueError: If geometry cannot be decoded
     """
     decoded_gpkg_geom = base64.b64decode(gpkg_base64)
-    wkb_geom = geodiff.create_wkb_from_gpkg_header(decoded_gpkg_geom)[0]
+    wkb_geom = geodiff.create_wkb_from_gpkg_header(decoded_gpkg_geom)
     return wkb_loader(wkb_geom)
 
 
@@ -250,6 +250,14 @@ def process_entry(
         except ValueError as e:
             logger.warn(f"Geometry error for address_id={address_id}, road_id={road_id}: {e}")
             return False
+
+        # check if coordinates are valid numbers, if not skip the update to avoid CLI errors
+        try:
+            x = float(x)
+            y = float(y)
+        except (TypeError, ValueError):
+            logger.warn(f"Invalid coordinates to update for address_id={address_id}, road_id={road_id}: x={x}, y={y}; skipping entry")
+            return False
     else:
         logger.warn(f"No geometry found for address_id={address_id}, road_id={road_id}; skipping anncsu update")
         return False
@@ -269,33 +277,60 @@ def process_entry(
 
         # check if record exists in ANNCSU before deciding to insert or update
         # get anncsu data basing on address_id
-        response = anncsu_sdk.pathparam.prognazarea_get_path_param(prognaz=f"{address_id}")
-        if response.res != "OK":
-            logger.error(f"Failed to query ANNCSU for address_id={address_id}: {response.res} - {response.message}")
+        # response = anncsu_sdk.queryparam.prognazacc_get_query_param(
+        #     prognazacc=f"{address_id}",
+        # )
+        response = cli_runner.invoke(
+            cli_app,
+            [
+                "pa",
+                "accesso",
+                "--prognazacc",
+                str(address_id) if address_id else "",
+                "--production",
+                "--token-endpoint",
+                "https://auth.interop.pagopa.it/token.oauth2",
+                "--json"
+            ],
+        )
+        if response.exit_code != 0:
+            logger.error(f"Failed to query ANNCSU for address_id={address_id}: {response.output} - exit code {response.exit_code}")
             return False
-        if len(response.data) == 0:
+        json_data = json.loads(response.output)
+        if len(json_data) == 0:
             logger.warn(f"No ANNCSU record found for address_id={address_id}; skipping update")
             return False
-        if len(response.data) > 1:
+        if len(json_data) > 1:
             logger.warn(f"Multiple ANNCSU records found for address_id={address_id}; skipping update")
             return False
-        anncsu_record = response.data[0]
+        anncsu_record = json_data[0]
 
         # get anncsu coordinate to check if they are been modified
         # if coordinates are the same, skip the update to avoid unnecessary CLI calls
-        coord_x = anncsu_record.coord_x
-        coord_y = anncsu_record.coord_y
+        coord_x = anncsu_record["coordX"]
+        coord_y = anncsu_record["coordY"]
+        logger.info(f"{action} found ANNCSU record for address_id={address_id} with coordinates: coordX={coord_x}, coordY={coord_y}")
+
         # quota = anncsu_record.quota
-        if coord_x is not None and coord_y is not None:
-            anncsu_coords = parse_gpkg_to_coordinates(anncsu_record.dug, geodiff, wkb_loader)
-            if (
-                abs(anncsu_coords.x - coord_x) < settings.coordinate_distance_threshold
-                and abs(anncsu_coords.y - coord_y) < settings.coordinate_distance_threshold
-            ):
-                logger.info(f"Coordinates for address_id={address_id} are the same in ANNCSU; skipping update")
-                return True
+        if coord_x and coord_y:
+            # check if coordinates are valid numbers
+            try:
+                coord_x = float(coord_x)
+                coord_y = float(coord_y)
+            except (TypeError, ValueError):
+                logger.warn(f"Invalid original ANNCSU coordinates for address_id={address_id}: coordX={coord_x}, coordY={coord_y}; skipping update")
+            else:
+                # if valid numbers, check if they are the same of the coordinates to update, 
+                # if they are the same skip the update to avoid unnecessary CLI calls
+                if (
+                    abs(x - coord_x) <= settings.coordinate_distance_threshold and
+                    abs(y - coord_y) <= settings.coordinate_distance_threshold
+                ):
+                    logger.info(f"Coordinates for address_id={address_id} are the same in ANNCSU; skipping update")
+                    return True
 
         # update coordinates via CLI
+        logger.info(f"{action} ANNCSU record for address_id={address_id} with coordinates: coordX={x:.8f}, coordY={y:.8f}")
         result = cli_runner.invoke(
             cli_app,
             [
@@ -306,11 +341,14 @@ def process_entry(
                 "--progr-civico",
                 str(address_id) if address_id else "",
                 "--x",
-                str(x),
+                f'"{x:.8f}"',
                 "--y",
-                str(y),
+                f'"{y:.8f}"',
                 "--metodo",
                 "4",
+                "--token-endpoint",
+                "https://auth.interop.pagopa.it/token.oauth2",
+                "--json"
             ],
         )
         if result.exit_code != 0:
@@ -450,7 +488,12 @@ def authenticate_cli(
     """
     logger.info("Authenticating with ANNCSU CLI...")
     try:
-        result = cli_runner.invoke(cli_app, ["auth", "login", "--api", api_type])
+        result = cli_runner.invoke(cli_app, [
+            "auth",
+            "login",
+            "--api", api_type,
+            "--token-endpoint", "https://auth.interop.pagopa.it/token.oauth2",]
+        )
         if result.exit_code != 0:
             logger.error(f"CLI authentication failed: {result.output}")
             return False
@@ -530,7 +573,7 @@ def run_action(
     if not success:
         logger.warn("One or more ANNCSU CLI calls failed (see logs)")
 
-    logger.info("Anncsu Update Action completed")
+    logger.info("Anncsu Update Action ended")
     return success
 
 
