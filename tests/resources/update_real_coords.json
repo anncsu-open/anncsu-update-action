@@ -1,0 +1,20 @@
+{
+    "geodiff": [
+        {
+            "changes": [
+                {"column": 0, "old": 28671616},
+                {
+                    "column": 1,
+                    "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=",
+                    "old": "R1AAAQAAAAABAQAAAObiXKWtwitAXt3+bojzREA="
+                },
+                {
+                    "column": 2,
+                    "old": 1222582
+                }
+            ],
+            "table": "WhereAbouts_fails",
+            "type": "update"
+        }
+    ]
+}
