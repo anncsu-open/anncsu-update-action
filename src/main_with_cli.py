@@ -355,9 +355,9 @@ def process_entry(
             "--progr-civico",
             str(address_id) if address_id else "",
             "--x",
-            f'{x:.9f}',
+            f"{x:.9f}",
             "--y",
-            f'{y:.9f}',
+            f"{y:.9f}",
             "--metodo",
             "4",  # TODO: define a method to determine the update method (e.g., based on entry type or other criteria)
             "--token-endpoint",
