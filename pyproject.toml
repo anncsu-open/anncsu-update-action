@@ -7,7 +7,8 @@ requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
   "actions-tools[github]>=0.3.0,<0.4",
-  "anncsu-sdk>=0.0.6,<0.0.7",
+  "anncsu-sdk>=0.0.6,<0.0.9",
+  # "anncsu-sdk @ file:///mnt/data/PROGRAMMING/AUTONOMO/GeoBeyond/Civici/ANNCSU-SDK/anncsu-sdk",
   "pydantic>=2.12.5,<3",
   "typer>=0.15.0",
   "rich>=13.0.0",
