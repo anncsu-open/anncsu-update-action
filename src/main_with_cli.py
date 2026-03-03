@@ -256,7 +256,9 @@ def process_entry(
             x = float(x)
             y = float(y)
         except (TypeError, ValueError):
-            logger.warn(f"Invalid coordinates to update for address_id={address_id}, road_id={road_id}: x={x}, y={y}; skipping entry")
+            logger.warn(
+                f"Invalid coordinates to update for address_id={address_id}, road_id={road_id}: x={x}, y={y}; skipping entry"
+            )
             return False
     else:
         logger.warn(f"No geometry found for address_id={address_id}, road_id={road_id}; skipping anncsu update")
@@ -290,11 +292,13 @@ def process_entry(
                 "--production",
                 "--token-endpoint",
                 "https://auth.interop.pagopa.it/token.oauth2",
-                "--json"
+                "--json",
             ],
         )
         if response.exit_code != 0:
-            logger.error(f"Failed to query ANNCSU for address_id={address_id}: {response.output} - exit code {response.exit_code}")
+            logger.error(
+                f"Failed to query ANNCSU for address_id={address_id}: {response.output} - exit code {response.exit_code}"
+            )
             return False
         json_data = json.loads(response.output)
         if len(json_data) == 0:
@@ -309,7 +313,9 @@ def process_entry(
         # if coordinates are the same, skip the update to avoid unnecessary CLI calls
         coord_x = anncsu_record["coordX"]
         coord_y = anncsu_record["coordY"]
-        logger.info(f"{action} found ANNCSU record for address_id={address_id} with coordinates: coordX={coord_x}, coordY={coord_y}")
+        logger.info(
+            f"{action} found ANNCSU record for address_id={address_id} with coordinates: coordX={coord_x}, coordY={coord_y}"
+        )
 
         # quota = anncsu_record.quota
         if coord_x and coord_y:
@@ -318,19 +324,23 @@ def process_entry(
                 coord_x = float(coord_x)
                 coord_y = float(coord_y)
             except (TypeError, ValueError):
-                logger.warn(f"Invalid original ANNCSU coordinates for address_id={address_id}: coordX={coord_x}, coordY={coord_y}; skipping update")
+                logger.warn(
+                    f"Invalid original ANNCSU coordinates for address_id={address_id}: coordX={coord_x}, coordY={coord_y}; skipping update"
+                )
             else:
-                # if valid numbers, check if they are the same of the coordinates to update, 
+                # if valid numbers, check if they are the same of the coordinates to update,
                 # if they are the same skip the update to avoid unnecessary CLI calls
                 if (
-                    abs(x - coord_x) <= settings.coordinate_distance_threshold and
-                    abs(y - coord_y) <= settings.coordinate_distance_threshold
+                    abs(x - coord_x) <= settings.coordinate_distance_threshold
+                    and abs(y - coord_y) <= settings.coordinate_distance_threshold
                 ):
                     logger.info(f"Coordinates for address_id={address_id} are the same in ANNCSU; skipping update")
                     return True
 
         # update coordinates via CLI
-        logger.info(f"{action} ANNCSU record for address_id={address_id} with coordinates: coordX={x:.8f}, coordY={y:.8f}")
+        logger.info(
+            f"{action} ANNCSU record for address_id={address_id} with coordinates: coordX={x:.8f}, coordY={y:.8f}"
+        )
         result = cli_runner.invoke(
             cli_app,
             [
@@ -348,7 +358,7 @@ def process_entry(
                 "4",
                 "--token-endpoint",
                 "https://auth.interop.pagopa.it/token.oauth2",
-                "--json"
+                "--json",
             ],
         )
         if result.exit_code != 0:
@@ -488,11 +498,16 @@ def authenticate_cli(
     """
     logger.info("Authenticating with ANNCSU CLI...")
     try:
-        result = cli_runner.invoke(cli_app, [
-            "auth",
-            "login",
-            "--api", api_type,
-            "--token-endpoint", "https://auth.interop.pagopa.it/token.oauth2",]
+        result = cli_runner.invoke(
+            cli_app,
+            [
+                "auth",
+                "login",
+                "--api",
+                api_type,
+                "--token-endpoint",
+                "https://auth.interop.pagopa.it/token.oauth2",
+            ],
         )
         if result.exit_code != 0:
             logger.error(f"CLI authentication failed: {result.output}")
