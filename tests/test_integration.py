@@ -339,6 +339,9 @@ class TestRunActionIntegration:
                 self.invocations.append(args)
                 if "auth" in args:
                     call_order.append("auth")
+                    return MockCliResult(exit_code=0, output="OK")
+                elif "accesso" in args:
+                    return MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]')
                 elif "coordinate" in args:
                     call_order.append("coordinate")
                 return MockCliResult(exit_code=0, output="OK")
