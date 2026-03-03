@@ -282,24 +282,30 @@ def process_entry(
         # response = anncsu_sdk.queryparam.prognazacc_get_query_param(
         #     prognazacc=f"{address_id}",
         # )
+        commands = [
+            "pa",
+            "accesso",
+            "--prognazacc",
+            str(address_id) if address_id else "",
+            "--production",
+            "--token-endpoint",
+            "https://auth.interop.pagopa.it/token.oauth2",
+            "--json",
+        ]
+        command_string = " ".join(commands)
+        logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
+
+        # run CLI command to query existing record in ANNCSU based on address_id
         response = cli_runner.invoke(
             cli_app,
-            [
-                "pa",
-                "accesso",
-                "--prognazacc",
-                str(address_id) if address_id else "",
-                "--production",
-                "--token-endpoint",
-                "https://auth.interop.pagopa.it/token.oauth2",
-                "--json",
-            ],
+            commands,
         )
         if response.exit_code != 0:
             logger.error(
                 f"Failed to query ANNCSU for address_id={address_id}: {response.output} - exit code {response.exit_code}"
             )
             return False
+
         json_data = json.loads(response.output)
         if len(json_data) == 0:
             logger.warn(f"No ANNCSU record found for address_id={address_id}; skipping update")
@@ -339,27 +345,32 @@ def process_entry(
 
         # update coordinates via CLI
         logger.info(
-            f"{action} ANNCSU record for address_id={address_id} with coordinates: coordX={x:.8f}, coordY={y:.8f}"
+            f"{action} ANNCSU record for address_id={address_id} with coordinates: coordX={x:.9f}, coordY={y:.9f}"
         )
+        commands = [
+            "coordinate",
+            "update",
+            "--codcom",
+            settings.codice_comune,
+            "--progr-civico",
+            str(address_id) if address_id else "",
+            "--x",
+            f'{x:.9f}',
+            "--y",
+            f'{y:.9f}',
+            "--metodo",
+            "4",  # TODO: define a method to determine the update method (e.g., based on entry type or other criteria)
+            "--token-endpoint",
+            "https://auth.interop.pagopa.it/token.oauth2",
+            "--json",
+        ]
+        command_string = " ".join(commands)
+        logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
+
+        # run CLI command to update coordinates
         result = cli_runner.invoke(
             cli_app,
-            [
-                "coordinate",
-                "update",
-                "--codcom",
-                settings.codice_comune,
-                "--progr-civico",
-                str(address_id) if address_id else "",
-                "--x",
-                f'"{x:.8f}"',
-                "--y",
-                f'"{y:.8f}"',
-                "--metodo",
-                "4",
-                "--token-endpoint",
-                "https://auth.interop.pagopa.it/token.oauth2",
-                "--json",
-            ],
+            commands,
         )
         if result.exit_code != 0:
             logger.error(f"ANNCSU CLI coordinate update failed: {result.output} - exit code {result.exit_code}")
