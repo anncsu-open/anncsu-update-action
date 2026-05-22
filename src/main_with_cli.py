@@ -198,7 +198,6 @@ def extract_entry_data(entry: GeodiffEntry) -> tuple[int | None, int | None, str
     plugin_score = None
     plugin_geoconder = None
 
-
     for change in entry.changes:
         if change.column == COLUMN_ADDRESS_ID:
             value = change.new or change.old
@@ -253,8 +252,9 @@ def process_entry(
         return False
 
     # Do nothing if record is the original one without changes, to avoid unnecessary CLI calls
-    if (plugin_score is not None and plugin_geoconder is not None) and \
-       (plugin_score == 1.0 and plugin_geoconder == "ANNCSU"):
+    if (plugin_score is not None and plugin_geoconder is not None) and (
+        plugin_score == 1.0 and plugin_geoconder == "ANNCSU"
+    ):
         logger.info(f"Entry has no changes (PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU); skipping entry: {entry}")
         return True
 

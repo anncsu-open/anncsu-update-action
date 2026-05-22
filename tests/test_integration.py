@@ -750,9 +750,7 @@ class TestGeodiffComparison:
         conn = sqlite3.connect(modified_gpkg)
         cursor = conn.cursor()
         # Change plugin_score from 0.5 → 1.0 and plugin_geocoder from OTHER → ANNCSU
-        cursor.execute(
-            "UPDATE test_layer SET plugin_score = 1.0, plugin_geocoder = 'ANNCSU' WHERE fid = 3"
-        )
+        cursor.execute("UPDATE test_layer SET plugin_score = 1.0, plugin_geocoder = 'ANNCSU' WHERE fid = 3")
         # Change plugin_score from 1.0 → 0.8 on fid=4 (was already ANNCSU geocoder)
         cursor.execute("UPDATE test_layer SET plugin_score = 0.8 WHERE fid = 4")
         conn.commit()
@@ -803,6 +801,7 @@ class TestPluginSkipIntegration:
 
         def mock_wkb_loader(data):
             from conftest import MockGeometry
+
             return MockGeometry()
 
         results = process_all_entries(
