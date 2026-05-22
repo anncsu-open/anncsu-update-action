@@ -76,7 +76,9 @@ class GeometryProtocol(Protocol):
 
 COLUMN_ADDRESS_ID = 0  # PROGRESSIVO_ACCESSO
 COLUMN_GEOMETRY = 1
-COLUMN_ROAD_ID = 2  # PROGRESSIVO_NAZIONALE
+COLUMN_ROAD_ID = 4  # PROGRESSIVO_NAZIONALE
+COLUMN_PLUGIN_SCORE = 20  # PLUGIN_SCORE (if available in the geodiff report)
+COLUMN_PLUGIN_GEOCODER = 21  # PLUGIN_GEOCODER (if available in the geodiff report)
 
 
 # ============================================================================
@@ -181,7 +183,7 @@ def parse_gpkg_to_coordinates(
 # ============================================================================
 
 
-def extract_entry_data(entry: GeodiffEntry) -> tuple[int | None, int | None, str | None]:
+def extract_entry_data(entry: GeodiffEntry) -> tuple[int | None, int | None, str | None, float | None, str | None]:
     """Extract address_id, road_id, and geometry from a geodiff entry.
 
     Args:
@@ -193,6 +195,9 @@ def extract_entry_data(entry: GeodiffEntry) -> tuple[int | None, int | None, str
     address_id = None
     road_id = None
     gpkg_geom = None
+    plugin_score = None
+    plugin_geoconder = None
+
 
     for change in entry.changes:
         if change.column == COLUMN_ADDRESS_ID:
@@ -204,8 +209,14 @@ def extract_entry_data(entry: GeodiffEntry) -> tuple[int | None, int | None, str
         elif change.column == COLUMN_ROAD_ID:
             value = change.new or change.old
             road_id = int(value) if value is not None else None
+        elif change.column == COLUMN_PLUGIN_SCORE:
+            value = change.new or change.old
+            plugin_score = float(value) if value is not None else None
+        elif change.column == COLUMN_PLUGIN_GEOCODER:
+            value = change.new or change.old
+            plugin_geoconder = str(value) if value is not None else None
 
-    return address_id, road_id, gpkg_geom
+    return address_id, road_id, gpkg_geom, plugin_score, plugin_geoconder
 
 
 def process_entry(
@@ -236,10 +247,16 @@ def process_entry(
     table = entry.table
 
     # Extract relevant data from entry changes that have to exist
-    address_id, road_id, gpkg_geom = extract_entry_data(entry)
+    address_id, road_id, gpkg_geom, plugin_score, plugin_geoconder = extract_entry_data(entry)
     if address_id is None:
         logger.warn(f"Entry has no address_id; skipping entry: {entry}")
         return False
+
+    # Do nothing if record is the original one without changes, to avoid unnecessary CLI calls
+    if (plugin_score is not None and plugin_geoconder is not None) and \
+       (plugin_score == 1.0 and plugin_geoconder == "ANNCSU"):
+        logger.info(f"Entry has no changes (PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU); skipping entry: {entry}")
+        return True
 
     # Parse geometry if present
     if gpkg_geom:

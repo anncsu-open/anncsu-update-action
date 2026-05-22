@@ -733,3 +733,194 @@ class TestGeodiffComparison:
 
         # No changes should be detected
         assert len(summary) == 0
+
+    def test_geodiff_detects_plugin_score_and_geocoder_changes(self, base_geopackage, tmp_path):
+        """Test that geodiff detects changes to plugin_score and plugin_geocoder columns.
+
+        base_geopackage rows 3-5 have pre-set plugin_score / plugin_geocoder values.
+        This test modifies them and verifies geodiff picks up the change.
+        """
+        import shutil
+        import sqlite3
+        from pygeodiff import GeoDiff
+
+        modified_gpkg = tmp_path / "modified.gpkg"
+        shutil.copy(base_geopackage, modified_gpkg)
+
+        conn = sqlite3.connect(modified_gpkg)
+        cursor = conn.cursor()
+        # Change plugin_score from 0.5 → 1.0 and plugin_geocoder from OTHER → ANNCSU
+        cursor.execute(
+            "UPDATE test_layer SET plugin_score = 1.0, plugin_geocoder = 'ANNCSU' WHERE fid = 3"
+        )
+        # Change plugin_score from 1.0 → 0.8 on fid=4 (was already ANNCSU geocoder)
+        cursor.execute("UPDATE test_layer SET plugin_score = 0.8 WHERE fid = 4")
+        conn.commit()
+        conn.close()
+
+        geodiff = GeoDiff()
+        changeset_path = str(tmp_path / "changeset.bin")
+        summary_json_path = str(tmp_path / "summary.json")
+
+        geodiff.create_changeset(str(base_geopackage), str(modified_gpkg), changeset_path)
+        geodiff.list_changes_summary(changeset_path, summary_json_path)
+
+        with open(summary_json_path) as f:
+            result = json.load(f)
+        summary = result.get("geodiff_summary", [])
+
+        assert len(summary) == 1
+        table_summary = summary[0]
+        assert table_summary["table"] == "test_layer"
+        assert table_summary["update"] == 2
+        assert table_summary["delete"] == 0
+        assert table_summary["insert"] == 0
+
+
+# ============================================================================
+# Integration Tests - PLUGIN_SCORE / PLUGIN_GEOCODER skip logic
+# ============================================================================
+
+
+class TestPluginSkipIntegration:
+    """Integration tests for the PLUGIN_SCORE=1.0 / PLUGIN_GEOCODER=ANNCSU skip logic."""
+
+    def test_process_entries_all_skipped_when_plugin_score_1_and_geocoder_anncsu(
+        self,
+        geodiff_plugin_skip_report_file,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """All entries with PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU must be skipped.
+
+        No CLI calls should be made; each entry returns True (success).
+        """
+        geodiff_file = GeodiffFile.from_path(geodiff_plugin_skip_report_file)
+
+        def mock_wkb_loader(data):
+            from conftest import MockGeometry
+            return MockGeometry()
+
+        results = process_all_entries(
+            geodiff_file=geodiff_file,
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+            anncsu_sdk=mock_anncsu_consultazione,
+        )
+
+        assert len(results) == 2
+        assert all(r.success for r in results)
+        # No CLI invocations — skip logic fired before any CLI call
+        assert len(mock_cli_runner.invocations) == 0
+        info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
+        assert sum(1 for m in info_messages if "PLUGIN_SCORE=1.0" in m and "PLUGIN_GEOCODER=ANNCSU" in m) == 2
+
+    def test_process_entries_not_skipped_when_plugin_conditions_not_met(
+        self,
+        geodiff_plugin_no_skip_report_file,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """Entries that do NOT meet the skip condition must be processed via CLI."""
+        geodiff_file = GeodiffFile.from_path(geodiff_plugin_no_skip_report_file)
+
+        def mock_wkb_loader(data):
+            return MockGeometry()
+
+        results = process_all_entries(
+            geodiff_file=geodiff_file,
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+            anncsu_sdk=mock_anncsu_consultazione,
+        )
+
+        assert len(results) == 2
+        assert all(r.success for r in results)
+        # Both entries must have triggered CLI calls (at least one query each)
+        assert len(mock_cli_runner.invocations) >= 2
+
+    def test_run_action_skips_plugin_score_anncsu_entries(
+        self,
+        geodiff_plugin_skip_report_file,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_logger,
+        monkeypatch,
+    ):
+        """run_action end-to-end: skipped entries must not cause CLI calls beyond auth."""
+        monkeypatch.setattr(
+            "main_with_cli.AnncsuConsultazione",
+            lambda security: MockAnncsuConsultazione(),
+        )
+
+        def mock_wkb_loader(data):
+            return MockGeometry()
+
+        result = run_action(
+            geodiff_report=str(geodiff_plugin_skip_report_file),
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+            token="test-token",
+        )
+
+        assert result is True
+        # Only the auth call should be present — no query/update calls
+        assert len(mock_cli_runner.invocations) == 1
+        _, auth_args = mock_cli_runner.invocations[0]
+        assert "auth" in auth_args
+
+    def test_run_action_processes_plugin_no_skip_entries(
+        self,
+        geodiff_plugin_no_skip_report_file,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_logger,
+        monkeypatch,
+    ):
+        """run_action end-to-end: entries that don't meet skip condition are processed."""
+        monkeypatch.setattr(
+            "main_with_cli.AnncsuConsultazione",
+            lambda security: MockAnncsuConsultazione(),
+        )
+
+        def mock_wkb_loader(data):
+            return MockGeometry()
+
+        result = run_action(
+            geodiff_report=str(geodiff_plugin_no_skip_report_file),
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+            token="test-token",
+        )
+
+        assert result is True
+        # auth + at least one query per entry
+        assert len(mock_cli_runner.invocations) >= 3

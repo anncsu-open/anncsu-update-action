@@ -116,30 +116,113 @@ class TestExtractEntryData:
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
 
         assert address_id == 28671616
         assert road_id == 1222582
         assert gpkg_geom == "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="
+        assert plugin_score is None
+        assert plugin_geocoder is None
 
     def test_extract_entry_data_insert(self, geodiff_insert_json):
         geodiff = GeodiffFile.from_json_text(geodiff_insert_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
 
         assert address_id == 4
         assert gpkg_geom == "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="
+        assert plugin_score is None
+        assert plugin_geocoder is None
 
     def test_extract_entry_data_no_geometry(self, geodiff_real_value_update_json):
         geodiff = GeodiffFile.from_json_text(geodiff_real_value_update_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
 
         assert address_id == 28671617
         assert road_id == 1222582
         assert gpkg_geom is None
+        assert plugin_score is None
+        assert plugin_geocoder is None
+
+    def test_extract_entry_data_with_plugin_score_and_geocoder(self):
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=99001, new=None),
+                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                SimpleNamespace(column=4, old=5001, new=None),
+                SimpleNamespace(column=20, old=None, new="1.0"),
+                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+            ],
+        )
+
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+
+        assert address_id == 99001
+        assert road_id == 5001
+        assert gpkg_geom == "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="
+        assert plugin_score == 1.0
+        assert plugin_geocoder == "ANNCSU"
+
+    def test_extract_entry_data_with_plugin_score_only(self):
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=99002, new=None),
+                SimpleNamespace(column=20, old=None, new="0.8"),
+            ],
+        )
+
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+
+        assert address_id == 99002
+        assert plugin_score == 0.8
+        assert plugin_geocoder is None
+
+    def test_extract_entry_data_with_plugin_geocoder_only(self):
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=99003, new=None),
+                SimpleNamespace(column=21, old=None, new="OTHER"),
+            ],
+        )
+
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+
+        assert address_id == 99003
+        assert plugin_score is None
+        assert plugin_geocoder == "OTHER"
+
+    def test_extract_entry_data_plugin_score_uses_old_when_new_is_none(self):
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=99004, new=None),
+                SimpleNamespace(column=20, old="1.0", new=None),
+                SimpleNamespace(column=21, old="ANNCSU", new=None),
+            ],
+        )
+
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+
+        assert plugin_score == 1.0
+        assert plugin_geocoder == "ANNCSU"
 
 
 # ============================================================================
@@ -573,7 +656,7 @@ class TestProcessEntry:
         # Create an insert entry with negative address_id
         mock_change_addr = SimpleNamespace(column=0, old=None, new=-1)
         mock_change_geom = SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=")
-        mock_change_road = SimpleNamespace(column=2, old=None, new=5001)
+        mock_change_road = SimpleNamespace(column=4, old=None, new=5001)
         entry = SimpleNamespace(
             type="insert",
             table="addresses",
@@ -594,6 +677,201 @@ class TestProcessEntry:
         assert result is False
         warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
         assert any("Insert action with negative address_id" in msg for msg in warn_messages)
+
+    def test_process_entry_skipped_when_plugin_score_1_and_geocoder_anncsu(
+        self,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """Entry with PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU must be skipped (no CLI calls)."""
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=50001, new=None),
+                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                SimpleNamespace(column=4, old=9001, new=None),
+                SimpleNamespace(column=20, old=None, new="1.0"),
+                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+            ],
+        )
+
+        result = process_entry(
+            entry=entry,  # type: ignore[arg-type]
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            anncsu_sdk=mock_anncsu_consultazione,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+        )
+
+        assert result is True
+        assert len(mock_cli_runner.invocations) == 0
+        info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
+        assert any("PLUGIN_SCORE=1.0" in msg and "PLUGIN_GEOCODER=ANNCSU" in msg for msg in info_messages)
+
+    def test_process_entry_not_skipped_when_plugin_score_not_1(
+        self,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """Entry with PLUGIN_SCORE != 1.0 must NOT be skipped even if PLUGIN_GEOCODER=ANNCSU."""
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=50002, new=None),
+                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                SimpleNamespace(column=4, old=9002, new=None),
+                SimpleNamespace(column=20, old=None, new="0.5"),
+                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+            ],
+        )
+
+        result = process_entry(
+            entry=entry,  # type: ignore[arg-type]
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            anncsu_sdk=mock_anncsu_consultazione,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+        )
+
+        assert result is True
+        # CLI must have been called (query + update)
+        assert len(mock_cli_runner.invocations) >= 1
+
+    def test_process_entry_not_skipped_when_plugin_geocoder_not_anncsu(
+        self,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """Entry with PLUGIN_GEOCODER != ANNCSU must NOT be skipped even if PLUGIN_SCORE=1.0."""
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=50003, new=None),
+                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                SimpleNamespace(column=4, old=9003, new=None),
+                SimpleNamespace(column=20, old=None, new="1.0"),
+                SimpleNamespace(column=21, old=None, new="OTHER_GEOCODER"),
+            ],
+        )
+
+        result = process_entry(
+            entry=entry,  # type: ignore[arg-type]
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            anncsu_sdk=mock_anncsu_consultazione,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+        )
+
+        assert result is True
+        assert len(mock_cli_runner.invocations) >= 1
+
+    def test_process_entry_not_skipped_when_plugin_fields_none(
+        self,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """Entry without PLUGIN_SCORE/PLUGIN_GEOCODER columns must NOT be skipped."""
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=50004, new=None),
+                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                SimpleNamespace(column=4, old=9004, new=None),
+            ],
+        )
+
+        result = process_entry(
+            entry=entry,  # type: ignore[arg-type]
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            anncsu_sdk=mock_anncsu_consultazione,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+        )
+
+        assert result is True
+        assert len(mock_cli_runner.invocations) >= 1
+
+    def test_process_entry_not_skipped_when_only_plugin_score_present(
+        self,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """Entry with PLUGIN_SCORE=1.0 but no PLUGIN_GEOCODER must NOT be skipped."""
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=50005, new=None),
+                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                SimpleNamespace(column=4, old=9005, new=None),
+                SimpleNamespace(column=20, old=None, new="1.0"),
+            ],
+        )
+
+        result = process_entry(
+            entry=entry,  # type: ignore[arg-type]
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            anncsu_sdk=mock_anncsu_consultazione,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+        )
+
+        assert result is True
+        assert len(mock_cli_runner.invocations) >= 1
 
 
 # ============================================================================

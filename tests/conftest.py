@@ -316,7 +316,7 @@ def geodiff_real_value_update_json():
                 {
                     "changes": [
                         {"column": 0, "old": 28671617},
-                        {"column": 2, "old": 1222582},
+                        {"column": 4, "old": 1222582},
                         {"column": 6, "new": "4", "old": "44"},
                     ],
                     "table": "WhereAbouts_fails",
@@ -344,7 +344,7 @@ def geodiff_real_coord_update_json():
                             "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=",
                             "old": "R1AAAQAAAAABAQAAAObiXKWtwitAXt3+bojzREA=",
                         },
-                        {"column": 2, "old": 1222582},
+                        {"column": 4, "old": 1222582},
                     ],
                     "table": "WhereAbouts_fails",
                     "type": "update",
@@ -365,7 +365,7 @@ def geodiff_delete_json():
                     "changes": [
                         {"column": 0, "old": 2},
                         {"column": 1, "old": "R1AAAeYQAAABAQAAAPBDGq/kSde/+HS2Feb94T8="},
-                        {"column": 2, "old": 202},  # road_id should be integer
+                        {"column": 4, "old": 202},  # road_id should be integer
                         {"column": 3, "old": "feature2"},  # other field
                     ],
                 }
@@ -385,7 +385,7 @@ def geodiff_insert_json():
                     "changes": [
                         {"column": 0, "new": 4},
                         {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                        {"column": 2, "new": 401},  # road_id should be integer
+                        {"column": 4, "new": 401},  # road_id should be integer
                         {"column": 3, "new": "my new point A"},  # other field
                     ],
                 }
@@ -406,7 +406,7 @@ def geodiff_multiple_entries_json():
                     "changes": [
                         {"column": 0, "old": 1001},
                         {"column": 1, "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="},
-                        {"column": 2, "old": 5001},
+                        {"column": 4, "old": 5001},
                     ],
                 },
                 {
@@ -415,7 +415,7 @@ def geodiff_multiple_entries_json():
                     "changes": [
                         {"column": 0, "new": 1002},
                         {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                        {"column": 2, "new": 5002},
+                        {"column": 4, "new": 5002},
                     ],
                 },
                 {
@@ -424,7 +424,7 @@ def geodiff_multiple_entries_json():
                     "changes": [
                         {"column": 0, "old": 1003},
                         {"column": 1, "old": "R1AAAeYQAAABAQAAAPBDGq/kSde/+HS2Feb94T8="},
-                        {"column": 2, "old": 5003},
+                        {"column": 4, "old": 5003},
                     ],
                 },
             ]
@@ -459,7 +459,7 @@ def geodiff_action_report_json():
                         "changes": [
                             {"column": 0, "old": 1001},
                             {"column": 1, "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="},
-                            {"column": 2, "old": 5001},
+                            {"column": 4, "old": 5001},
                         ],
                     },
                     {
@@ -468,7 +468,7 @@ def geodiff_action_report_json():
                         "changes": [
                             {"column": 0, "new": 1002},
                             {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                            {"column": 2, "new": 5002},
+                            {"column": 4, "new": 5002},
                         ],
                     },
                 ]
@@ -493,7 +493,7 @@ def geodiff_update_report_file(tmp_path):
             {
                 "changes": [
                     {"column": 0, "old": 28671617},
-                    {"column": 2, "old": 1222582},
+                    {"column": 4, "old": 1222582},
                     {"column": 6, "new": "4", "old": "44"},
                 ],
                 "table": "WhereAbouts_fails",
@@ -520,9 +520,9 @@ def geodiff_delete_report_file(tmp_path):
                 "changes": [
                     {"column": 0, "old": 2},
                     {"column": 1, "old": "R1AAAeYQAAABAQAAAPBDGq/kSde/+HS2Feb94T8="},
-                    {"column": 2, "old": 202},  # road_id should be integer
                     {"column": 3, "old": "Point B"},  # other field
-                    {"column": 4, "old": 2},
+                    {"column": 4, "old": 202},  # road_id should be integer
+                    {"column": 5, "old": 2},
                 ],
             },
             {
@@ -531,9 +531,9 @@ def geodiff_delete_report_file(tmp_path):
                 "changes": [
                     {"column": 0, "old": 4},
                     {"column": 1, "old": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                    {"column": 2, "old": 404},  # road_id should be integer
                     {"column": 3, "old": "Point D"},  # other field
-                    {"column": 4, "old": 4},
+                    {"column": 4, "old": 404},  # road_id should be integer
+                    {"column": 5, "old": 4},
                 ],
             },
         ]
@@ -557,9 +557,9 @@ def geodiff_insert_report_file(tmp_path):
                 "changes": [
                     {"column": 0, "new": 6},
                     {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                    {"column": 2, "new": 606},  # road_id should be integer
                     {"column": 3, "new": "Inserted Point F"},  # other field
-                    {"column": 4, "new": 6},
+                    {"column": 4, "new": 606},  # road_id should be integer
+                    {"column": 5, "new": 6},
                 ],
             },
             {
@@ -568,9 +568,9 @@ def geodiff_insert_report_file(tmp_path):
                 "changes": [
                     {"column": 0, "new": 7},
                     {"column": 1, "new": "R1AAAeYQAAABAQAAAPBDGq/kSde/+HS2Feb94T8="},
-                    {"column": 2, "new": 707},  # road_id should be integer
                     {"column": 3, "new": "Inserted Point G"},  # other field
-                    {"column": 4, "new": 7},
+                    {"column": 4, "new": 707},  # road_id should be integer
+                    {"column": 5, "new": 7},
                 ],
             },
         ]
@@ -594,7 +594,7 @@ def geodiff_mixed_report_file(tmp_path):
                 "changes": [
                     {"column": 0, "old": 1},
                     {"column": 1, "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="},
-                    {"column": 2, "old": 101},
+                    {"column": 4, "old": 101},
                 ],
             },
             {
@@ -603,7 +603,7 @@ def geodiff_mixed_report_file(tmp_path):
                 "changes": [
                     {"column": 0, "new": 10},
                     {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                    {"column": 2, "new": 1010},
+                    {"column": 4, "new": 1010},
                 ],
             },
             {
@@ -612,12 +612,87 @@ def geodiff_mixed_report_file(tmp_path):
                 "changes": [
                     {"column": 0, "old": 5},
                     {"column": 1, "old": "R1AAAeYQAAABAQAAAPBDGq/kSde/+HS2Feb94T8="},
-                    {"column": 2, "old": 505},
+                    {"column": 4, "old": 505},
                 ],
             },
         ]
     }
     report_file = tmp_path / "geodiff_mixed_report.json"
+    report_file.write_text(json.dumps(report_content, indent=2))
+    return report_file
+
+
+@pytest.fixture
+def geodiff_plugin_skip_report_file(tmp_path):
+    """Report file with entries that have PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU.
+
+    Both entries must be skipped by process_entry without any CLI calls.
+    """
+    report_content = {
+        "geodiff": [
+            {
+                "table": "test_layer",
+                "type": "update",
+                "changes": [
+                    {"column": 0, "old": 77001},
+                    {"column": 1, "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="},
+                    {"column": 4, "old": 7001},
+                    {"column": 20, "old": None, "new": "1.0"},
+                    {"column": 21, "old": None, "new": "ANNCSU"},
+                ],
+            },
+            {
+                "table": "test_layer",
+                "type": "update",
+                "changes": [
+                    {"column": 0, "old": 77002},
+                    {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
+                    {"column": 4, "old": 7002},
+                    {"column": 20, "old": None, "new": "1.0"},
+                    {"column": 21, "old": None, "new": "ANNCSU"},
+                ],
+            },
+        ]
+    }
+    report_file = tmp_path / "geodiff_plugin_skip_report.json"
+    report_file.write_text(json.dumps(report_content, indent=2))
+    return report_file
+
+
+@pytest.fixture
+def geodiff_plugin_no_skip_report_file(tmp_path):
+    """Report file with entries that have plugin columns but should NOT be skipped.
+
+    One entry has PLUGIN_SCORE != 1.0, another has PLUGIN_GEOCODER != ANNCSU.
+    Both must be processed normally (CLI calls expected).
+    """
+    report_content = {
+        "geodiff": [
+            {
+                "table": "test_layer",
+                "type": "update",
+                "changes": [
+                    {"column": 0, "old": 88001},
+                    {"column": 1, "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="},
+                    {"column": 4, "old": 8001},
+                    {"column": 20, "old": None, "new": "0.75"},
+                    {"column": 21, "old": None, "new": "ANNCSU"},
+                ],
+            },
+            {
+                "table": "test_layer",
+                "type": "update",
+                "changes": [
+                    {"column": 0, "old": 88002},
+                    {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
+                    {"column": 4, "old": 8002},
+                    {"column": 20, "old": None, "new": "1.0"},
+                    {"column": 21, "old": None, "new": "OTHER_GEOCODER"},
+                ],
+            },
+        ]
+    }
+    report_file = tmp_path / "geodiff_plugin_no_skip_report.json"
     report_file.write_text(json.dumps(report_content, indent=2))
     return report_file
 
@@ -685,7 +760,9 @@ def base_geopackage(tmp_path):
             geom BLOB,
             name TEXT,
             address_id INTEGER,
-            road_id INTEGER
+            road_id INTEGER,
+            plugin_score REAL,
+            plugin_geocoder TEXT
         );
 
         INSERT INTO gpkg_contents VALUES (
@@ -697,11 +774,11 @@ def base_geopackage(tmp_path):
             'test_layer', 'geom', 'POINT', 4326, 0, 0
         );
 
-        INSERT INTO test_layer (fid, name, address_id, road_id) VALUES (1, 'Point A', 1, 101);
-        INSERT INTO test_layer (fid, name, address_id, road_id) VALUES (2, 'Point B', 2, 202);
-        INSERT INTO test_layer (fid, name, address_id, road_id) VALUES (3, 'Point C', 3, 303);
-        INSERT INTO test_layer (fid, name, address_id, road_id) VALUES (4, 'Point D', 4, 404);
-        INSERT INTO test_layer (fid, name, address_id, road_id) VALUES (5, 'Point E', 5, 505);
+        INSERT INTO test_layer (fid, name, address_id, road_id, plugin_score, plugin_geocoder) VALUES (1, 'Point A', 1, 101, NULL, NULL);
+        INSERT INTO test_layer (fid, name, address_id, road_id, plugin_score, plugin_geocoder) VALUES (2, 'Point B', 2, 202, NULL, NULL);
+        INSERT INTO test_layer (fid, name, address_id, road_id, plugin_score, plugin_geocoder) VALUES (3, 'Point C', 3, 303, 0.5, 'OTHER');
+        INSERT INTO test_layer (fid, name, address_id, road_id, plugin_score, plugin_geocoder) VALUES (4, 'Point D', 4, 404, 1.0, 'ANNCSU');
+        INSERT INTO test_layer (fid, name, address_id, road_id, plugin_score, plugin_geocoder) VALUES (5, 'Point E', 5, 505, 1.0, 'ANNCSU');
     """)
 
     conn.commit()
