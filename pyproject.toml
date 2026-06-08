@@ -1,13 +1,13 @@
 # Project
 [project]
 name = "anncsu-update-action"
-version = "0.1.0"
+version = "0.1.1"
 description = "GitHub Action to update ANNCSU db via openapi using anncsu-sdk"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
   "actions-tools[github]>=0.3.0,<0.4",
-  "anncsu-sdk>=0.0.6,<0.0.9",
+  "anncsu-sdk>=0.0.6,<0.0.10",
   # "anncsu-sdk @ file:///mnt/data/PROGRAMMING/AUTONOMO/GeoBeyond/Civici/ANNCSU-SDK/anncsu-sdk",
   "pydantic>=2.12.5,<3",
   "typer>=0.15.0",
