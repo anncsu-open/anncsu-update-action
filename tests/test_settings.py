@@ -19,6 +19,7 @@ def _write_env(tmp_path, content: str):
 def test_loads_from_env_file(tmp_path, monkeypatch):
     _write_env(tmp_path, "ANNCSU_UPDATE_CODICE_COMUNE=I501\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANNCSU_UPDATE_CODICE_COMUNE", raising=False)
     s = AnncsuUpdateSettings()
     assert s.codice_comune == "I501"
 
@@ -26,6 +27,7 @@ def test_loads_from_env_file(tmp_path, monkeypatch):
 def test_empty_value_allowed(tmp_path, monkeypatch):
     _write_env(tmp_path, "ANNCSU_UPDATE_CODICE_COMUNE=\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANNCSU_UPDATE_CODICE_COMUNE", raising=False)
     s = AnncsuUpdateSettings()
     assert s.codice_comune == ""
 
@@ -33,5 +35,6 @@ def test_empty_value_allowed(tmp_path, monkeypatch):
 def test_missing_key_raises(tmp_path, monkeypatch):
     # no .env file present -> should raise MissingKeyError
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANNCSU_UPDATE_CODICE_COMUNE", raising=False)
     with pytest.raises(ValidationError):
         AnncsuUpdateSettings()
