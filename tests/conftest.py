@@ -624,32 +624,34 @@ def geodiff_mixed_report_file(tmp_path):
 
 @pytest.fixture
 def geodiff_plugin_skip_report_file(tmp_path):
-    """Report file with entries that have PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU.
+    """Report file with insert entries that have PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU.
 
     Both entries must be skipped by process_entry without any CLI calls.
+    The skip logic only fires for insert actions with these plugin values (original unmodified
+    ANNCSU records being inserted for the first time).
     """
     report_content = {
         "geodiff": [
             {
                 "table": "test_layer",
-                "type": "update",
+                "type": "insert",
                 "changes": [
-                    {"column": 0, "old": 77001},
+                    {"column": 0, "new": 77001},
                     {"column": 1, "new": "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="},
-                    {"column": 4, "old": 7001},
-                    {"column": 20, "old": None, "new": "1.0"},
-                    {"column": 21, "old": None, "new": "ANNCSU"},
+                    {"column": 4, "new": 7001},
+                    {"column": 20, "new": "1.0"},
+                    {"column": 21, "new": "ANNCSU"},
                 ],
             },
             {
                 "table": "test_layer",
-                "type": "update",
+                "type": "insert",
                 "changes": [
-                    {"column": 0, "old": 77002},
+                    {"column": 0, "new": 77002},
                     {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                    {"column": 4, "old": 7002},
-                    {"column": 20, "old": None, "new": "1.0"},
-                    {"column": 21, "old": None, "new": "ANNCSU"},
+                    {"column": 4, "new": 7002},
+                    {"column": 20, "new": "1.0"},
+                    {"column": 21, "new": "ANNCSU"},
                 ],
             },
         ]
