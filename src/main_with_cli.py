@@ -251,9 +251,9 @@ def process_entry(
         logger.warn(f"Entry has no address_id; skipping entry: {entry}")
         return False
 
-    # Do nothing if record is the original one without changes, to avoid unnecessary CLI calls
+    # Do nothing if record is the original one without changes due to first insert, to avoid unnecessary CLI calls
     if (plugin_score is not None and plugin_geoconder is not None) and (
-        plugin_score == 1.0 and plugin_geoconder == "ANNCSU"
+        plugin_score == 1.0 and plugin_geoconder == "ANNCSU" and action == "insert"
     ):
         logger.info(f"Entry has no changes (PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU); skipping entry: {entry}")
         return True

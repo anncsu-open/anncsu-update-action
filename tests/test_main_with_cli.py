@@ -678,7 +678,7 @@ class TestProcessEntry:
         warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
         assert any("Insert action with negative address_id" in msg for msg in warn_messages)
 
-    def test_process_entry_skipped_when_plugin_score_1_and_geocoder_anncsu(
+    def test_process_entry_skipped_when_insert_with_plugin_score_1_and_geocoder_anncsu(
         self,
         mock_settings,
         mock_cli_runner,
@@ -688,16 +688,19 @@ class TestProcessEntry:
         mock_logger,
         mock_anncsu_consultazione,
     ):
-        """Entry with PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU must be skipped (no CLI calls)."""
+        """Insert entry with PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU must be skipped (no CLI calls).
+
+        This represents an original unmodified ANNCSU record being inserted for the first time.
+        """
         from types import SimpleNamespace
 
         entry = SimpleNamespace(
-            type="update",
+            type="insert",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=50001, new=None),
+                SimpleNamespace(column=0, old=None, new=50001),
                 SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=9001, new=None),
+                SimpleNamespace(column=4, old=None, new=9001),
                 SimpleNamespace(column=20, old=None, new="1.0"),
                 SimpleNamespace(column=21, old=None, new="ANNCSU"),
             ],
@@ -718,6 +721,49 @@ class TestProcessEntry:
         assert len(mock_cli_runner.invocations) == 0
         info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
         assert any("PLUGIN_SCORE=1.0" in msg and "PLUGIN_GEOCODER=ANNCSU" in msg for msg in info_messages)
+
+    def test_process_entry_update_not_skipped_when_plugin_score_1_and_geocoder_anncsu(
+        self,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        """Update entry with PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU must NOT be skipped.
+
+        The skip-if-unmodified logic only applies to insert actions, not updates.
+        """
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                SimpleNamespace(column=0, old=50006, new=None),
+                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                SimpleNamespace(column=4, old=9006, new=None),
+                SimpleNamespace(column=20, old=None, new="1.0"),
+                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+            ],
+        )
+
+        result = process_entry(
+            entry=entry,  # type: ignore[arg-type]
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            anncsu_sdk=mock_anncsu_consultazione,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+        )
+
+        assert result is True
+        # CLI must have been called (query + coordinate update)
+        assert len(mock_cli_runner.invocations) >= 1
 
     def test_process_entry_not_skipped_when_plugin_score_not_1(
         self,
