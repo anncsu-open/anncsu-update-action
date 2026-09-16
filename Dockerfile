@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.authors="luipir"
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates=20230311+deb12u1 \
-        curl=7.88.1-10+deb12u14 \
+        curl=7.88.1-10+deb12u15 \
         git=1:2.39.5-0+deb12u2 \
         python3=3.11.2-1+b1 \
         python3-venv=3.11.2-1+b1 \
