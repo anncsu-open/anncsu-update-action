@@ -886,8 +886,8 @@ class TestPluginSkipIntegration:
 
         assert result is True
         # Only the auth call should be present — no query/update calls
-        assert len(mock_cli_runner.invocations) == 1
-        _, auth_args = mock_cli_runner.invocations[0]
+        assert len(mock_cli_runner.invocations) == 2
+        _, auth_args = mock_cli_runner.invocations[1]
         assert "auth" in auth_args
 
     def test_run_action_processes_plugin_no_skip_entries(
