@@ -532,7 +532,6 @@ def authenticate_cli(
             [
                 "auth",
                 "login",
-                "--production",
                 "--api",
                 api_type,
                 "--token-endpoint",
