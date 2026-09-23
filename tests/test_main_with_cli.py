@@ -1138,8 +1138,8 @@ class TestAuthenticateCli:
         result = authenticate_cli(mock_cli_runner, mock_cli_app, "pa", mock_logger)
 
         assert result is True
-        assert len(mock_cli_runner.invocations) == 2
-        _, args = mock_cli_runner.invocations[1]
+        assert len(mock_cli_runner.invocations) == 1
+        _, args = mock_cli_runner.invocations[0]
         assert "auth" in args
         assert "login" in args
         assert "--api" in args

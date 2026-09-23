@@ -527,12 +527,6 @@ def authenticate_cli(
     """
     logger.info("Authenticating with ANNCSU CLI...")
     try:
-        import os
-
-        result = cli_runner.invoke(cli_app, ["config", "show", "--json"])
-        logger.info(result.output)  # guardare "issuer": mostra i primi 8 caratteri
-        logger.info(f"{os.getcwd()}, {os.environ.get('PDND_ISSUER')}")
-
         result = cli_runner.invoke(
             cli_app,
             [
