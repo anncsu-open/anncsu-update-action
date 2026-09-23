@@ -378,6 +378,7 @@ def process_entry(
             "--metodo",
             "4",  # TODO: define a method to determine the update method (e.g., based on entry type or other criteria)
             "--token-endpoint",
+            "--production",
             "https://auth.interop.pagopa.it/token.oauth2",
             "--json",
         ]
@@ -540,6 +541,7 @@ def authenticate_cli(
                 "--api",
                 api_type,
                 "--token-endpoint",
+                "--production",
                 "https://auth.interop.pagopa.it/token.oauth2",
             ],
         )
