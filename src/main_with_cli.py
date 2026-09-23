@@ -367,6 +367,7 @@ def process_entry(
         commands = [
             "coordinate",
             "update",
+            "--production",
             "--codcom",
             settings.codice_comune,
             "--progr-civico",
@@ -378,7 +379,6 @@ def process_entry(
             "--metodo",
             "4",  # TODO: define a method to determine the update method (e.g., based on entry type or other criteria)
             "--token-endpoint",
-            "--production",
             "https://auth.interop.pagopa.it/token.oauth2",
             "--json",
         ]
