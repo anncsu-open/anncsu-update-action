@@ -532,10 +532,10 @@ def authenticate_cli(
             [
                 "auth",
                 "login",
+                "--production",
                 "--api",
                 api_type,
                 "--token-endpoint",
-                "--production",
                 "https://auth.interop.pagopa.it/token.oauth2",
             ],
         )
