@@ -11,6 +11,7 @@ import base64
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Protocol, Any, runtime_checkable
+from unittest.mock import MagicMock
 
 from geodiff_models import GeodiffFile, GeodiffEntry
 
@@ -43,6 +44,7 @@ class SettingsProtocol(Protocol):
 
     codice_comune: str
     coordinate_distance_threshold: float
+    dry_run: bool
 
     def model_dump_json(self) -> str: ...
 
@@ -108,6 +110,41 @@ class EntryResult:
     entry_type: str
     success: bool
     error_message: str | None = None
+
+
+# ============================================================================
+# Dry run support
+# ============================================================================
+
+
+@dataclass
+class DryRunCliResult:
+    """Fake CLI result returned in dry run mode."""
+
+    exit_code: int = 0
+    output: str = ""
+
+
+class DryRunCliRunner:
+    """CLI runner that logs commands instead of executing them.
+
+    The "pa accesso" query returns a fake record without coordinates, so the
+    coordinate update command is always reached and logged.
+    """
+
+    def __init__(self, logger: LoggerProtocol):
+        self.logger = logger
+        self.calls: list[list[str]] = []
+
+    def invoke(self, app: Any, args: list[str]) -> DryRunCliResult:
+        self.calls.append(args)
+        self.logger.info(f"[DRY RUN] would invoke ANNCSU CLI: {' '.join(args)}")
+        if args[:2] == ["pa", "accesso"]:
+            prognazacc = args[args.index("--prognazacc") + 1] if "--prognazacc" in args else ""
+            output = json.dumps([{"prognazacc": prognazacc, "coordX": None, "coordY": None}])
+        else:
+            output = json.dumps({"dry_run": True})
+        return DryRunCliResult(exit_code=0, output=output)
 
 
 # ============================================================================
@@ -631,6 +668,7 @@ def run_action(
     logger: LoggerProtocol,
     token: str,
     api_type: str = "pa",
+    dry_run: bool = False,
 ) -> bool:
     """Run the ANNCSU update action.
 
@@ -648,6 +686,8 @@ def run_action(
         logger: Logger for output
         api_type: API type for CLI authentication
         token: Token for SDK calls (if needed)
+        dry_run: If True, skip authentication, mock the SDK and log CLI commands
+            instead of executing them
 
     Returns:
         True if action completed successfully, False otherwise
@@ -666,14 +706,19 @@ def run_action(
         logger.error("Could not load or validate geodiff report; aborting")
         return False
 
-    # Authenticate with CLI
-    if not authenticate_cli(cli_runner, cli_app, api_type, logger):
-        logger.error("Failed to authenticate with ANNCSU CLI")
-        return False
+    if dry_run:
+        logger.warn("[DRY RUN] enabled: skipping authentication, ANNCSU CLI calls are only logged")
+        cli_runner = DryRunCliRunner(logger)
+        sdk = MagicMock(spec=AnncsuConsultazione)
+    else:
+        # Authenticate with CLI
+        if not authenticate_cli(cli_runner, cli_app, api_type, logger):
+            logger.error("Failed to authenticate with ANNCSU CLI")
+            return False
 
-    # security class to use SDK calls with the same token as CLI
-    anncsu_security = Security(bearer=token, validate_expiration=True)
-    sdk = AnncsuConsultazione(security=anncsu_security)
+        # security class to use SDK calls with the same token as CLI
+        anncsu_security = Security(bearer=token, validate_expiration=True)
+        sdk = AnncsuConsultazione(security=anncsu_security)
 
     # Process all entries
     logger.info("ANNCSU CLI update based on geodiff report JSON...")
@@ -759,6 +804,7 @@ def main() -> None:
         logger=core,
         token=_token,
         api_type="pa",
+        dry_run=settings.dry_run,
     )
 
     if success:

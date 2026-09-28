@@ -24,6 +24,7 @@ class AnncsuUpdateSettings(BaseSettings):
 
     Environment Variables:
         ANNCSU_UPDATE_CODICE_COMUNE: Comune ISTAT id.
+        ANNCSU_UPDATE_DRY_RUN: If true, skip authentication and ANNCSU CLI calls (default: false).
 
     Example .env file:
         ANNCSU_UPDATE_CODICE_COMUNE=I501
@@ -47,6 +48,14 @@ class AnncsuUpdateSettings(BaseSettings):
         Field(
             default=0.00001,
             description="Distance in degrees to decide when a coordinate point has changed",
+        ),
+    ]
+
+    dry_run: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Skip authentication and ANNCSU CLI calls, logging the commands that would be executed",
         ),
     ]
 

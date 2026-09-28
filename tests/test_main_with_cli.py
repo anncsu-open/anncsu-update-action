@@ -5,6 +5,7 @@ without requiring complex module mocking.
 """
 
 import binascii
+import json
 import pytest
 
 from geodiff_models import GeodiffFile  # noqa: E402
@@ -1392,3 +1393,303 @@ class TestRunAction:
         )
 
         assert result is True  # Empty is success (nothing to do)
+
+
+# ============================================================================
+# Tests for dry run mode
+# ============================================================================
+
+
+class TestDryRun:
+    def test_dry_run_cli_runner_query_returns_record_without_coords(self, mock_logger):
+        runner = main_with_cli.DryRunCliRunner(mock_logger)
+
+        result = runner.invoke(None, ["pa", "accesso", "--prognazacc", "123", "--json"])
+
+        assert result.exit_code == 0
+        assert json.loads(result.output) == [{"prognazacc": "123", "coordX": None, "coordY": None}]
+        assert runner.calls == [["pa", "accesso", "--prognazacc", "123", "--json"]]
+
+    def test_dry_run_cli_runner_other_commands_succeed(self, mock_logger):
+        runner = main_with_cli.DryRunCliRunner(mock_logger)
+
+        result = runner.invoke(None, ["coordinate", "update", "--x", "1.0"])
+
+        assert result.exit_code == 0
+        assert json.loads(result.output) == {"dry_run": True}
+
+    def test_run_action_dry_run_skips_auth_and_cli(
+        self,
+        geodiff_schema_json,
+        geodiff_real_coord_update_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        monkeypatch,
+    ):
+        def _fail(*args, **kwargs):
+            raise AssertionError("SDK must not be instantiated in dry run")
+
+        monkeypatch.setattr("main_with_cli.AnncsuConsultazione.__init__", _fail)
+
+        result = run_action(
+            geodiff_report=geodiff_real_coord_update_json,
+            geodiff_schema=geodiff_schema_json,
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+            token="test-token",
+            dry_run=True,
+        )
+
+        assert result is True
+        # the real runner is never used: no auth, no query, no update
+        assert mock_cli_runner.invocations == []
+
+    @pytest.fixture
+    def captured_dry_runners(self, monkeypatch):
+        """Capture DryRunCliRunner instances created inside run_action."""
+        instances = []
+        original = main_with_cli.DryRunCliRunner
+
+        class TrackingDryRunCliRunner(original):
+            def __init__(self, logger):
+                super().__init__(logger)
+                instances.append(self)
+
+        monkeypatch.setattr("main_with_cli.DryRunCliRunner", TrackingDryRunCliRunner)
+        return instances
+
+    def _run_dry(self, report, schema, settings, cli_runner, cli_app, geodiff, wkb_loader, logger):
+        return run_action(
+            geodiff_report=report,
+            geodiff_schema=schema,
+            settings=settings,
+            cli_runner=cli_runner,
+            cli_app=cli_app,
+            geodiff=geodiff,
+            wkb_loader=wkb_loader,
+            logger=logger,
+            token="test-token",
+            dry_run=True,
+        )
+
+    def test_dry_run_cli_runner_logs_command(self, mock_logger):
+        runner = main_with_cli.DryRunCliRunner(mock_logger)
+
+        runner.invoke(None, ["coordinate", "update", "--x", "1.0"])
+
+        assert ("info", "[DRY RUN] would invoke ANNCSU CLI: coordinate update --x 1.0") in mock_logger.messages
+
+    def test_dry_run_cli_runner_query_without_prognazacc(self, mock_logger):
+        runner = main_with_cli.DryRunCliRunner(mock_logger)
+
+        result = runner.invoke(None, ["pa", "accesso", "--json"])
+
+        assert result.exit_code == 0
+        assert json.loads(result.output) == [{"prognazacc": "", "coordX": None, "coordY": None}]
+
+    def test_dry_run_cli_runner_satisfies_protocol(self, mock_logger):
+        assert isinstance(main_with_cli.DryRunCliRunner(mock_logger), main_with_cli.CliRunnerProtocol)
+
+    def test_run_action_dry_run_logs_query_and_update_commands(
+        self,
+        geodiff_schema_json,
+        geodiff_real_coord_update_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        captured_dry_runners,
+    ):
+        result = self._run_dry(
+            geodiff_real_coord_update_json,
+            geodiff_schema_json,
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+        )
+
+        assert result is True
+        assert len(captured_dry_runners) == 1
+        calls = captured_dry_runners[0].calls
+        # no auth login, only the query and the coordinate update
+        assert [c[:2] for c in calls] == [["pa", "accesso"], ["coordinate", "update"]]
+        query, update = calls
+        assert query[query.index("--prognazacc") + 1] == "28671616"
+        assert update[update.index("--progr-civico") + 1] == "28671616"
+        assert update[update.index("--codcom") + 1] == mock_settings.codice_comune
+
+    def test_run_action_dry_run_logs_warning(
+        self,
+        geodiff_schema_json,
+        geodiff_real_coord_update_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+    ):
+        self._run_dry(
+            geodiff_real_coord_update_json,
+            geodiff_schema_json,
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+        )
+
+        warnings = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("[DRY RUN] enabled" in msg for msg in warnings)
+        assert not any("Authenticating" in msg for _, msg in mock_logger.messages)
+
+    def test_run_action_dry_run_does_not_create_security(
+        self,
+        geodiff_schema_json,
+        geodiff_real_coord_update_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        monkeypatch,
+    ):
+        def _fail(*args, **kwargs):
+            raise AssertionError("Security must not be created in dry run")
+
+        monkeypatch.setattr("main_with_cli.Security", _fail)
+
+        result = self._run_dry(
+            geodiff_real_coord_update_json,
+            geodiff_schema_json,
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+        )
+
+        assert result is True
+
+    def test_run_action_dry_run_delete_makes_no_cli_calls(
+        self,
+        geodiff_schema_json,
+        geodiff_delete_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        captured_dry_runners,
+    ):
+        result = self._run_dry(
+            geodiff_delete_json,
+            geodiff_schema_json,
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+        )
+
+        assert result is True
+        assert captured_dry_runners[0].calls == []
+
+    def test_run_action_dry_run_invalid_report_still_fails(
+        self,
+        geodiff_schema_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+    ):
+        result = self._run_dry(
+            "invalid json",
+            geodiff_schema_json,
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+        )
+
+        assert result is False
+        assert mock_cli_runner.invocations == []
+
+    def test_run_action_dry_run_invalid_schema_still_fails(
+        self,
+        geodiff_real_coord_update_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+    ):
+        result = self._run_dry(
+            geodiff_real_coord_update_json,
+            "not a schema",
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+        )
+
+        assert result is False
+        assert mock_cli_runner.invocations == []
+
+    def test_run_action_without_dry_run_authenticates(
+        self,
+        geodiff_schema_json,
+        geodiff_real_coord_update_json,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "main_with_cli.AnncsuConsultazione",
+            lambda security: MockAnncsuConsultazione(security),
+        )
+
+        result = run_action(
+            geodiff_report=geodiff_real_coord_update_json,
+            geodiff_schema=geodiff_schema_json,
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+            token="test-token",
+        )
+
+        assert result is True
+        _, first_args = mock_cli_runner.invocations[0]
+        assert first_args[:2] == ["auth", "login"]

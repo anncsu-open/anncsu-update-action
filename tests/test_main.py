@@ -153,6 +153,29 @@ class TestMain:
         assert call_kwargs["token"] == "fake-token"
         assert call_kwargs["api_type"] == "pa"
 
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_main_passes_dry_run_from_settings(self, mock_imports, monkeypatch, dry_run):
+        """Test main() forwards settings.dry_run to run_action."""
+        run_action_calls = []
+
+        def tracking_run_action(**kwargs):
+            run_action_calls.append(kwargs)
+            return True
+
+        original_settings_class = sys.modules["settings"].AnncsuUpdateSettings
+
+        def settings_with_dry_run():
+            settings = original_settings_class()
+            settings.dry_run = dry_run
+            return settings
+
+        monkeypatch.setattr(sys.modules["settings"], "AnncsuUpdateSettings", settings_with_dry_run)
+        monkeypatch.setattr("main_with_cli.run_action", tracking_run_action)
+
+        main()
+
+        assert run_action_calls[0]["dry_run"] is dry_run
+
     def test_main_logs_startup_version(self, mock_imports, mock_run_action_success):
         """Test main() logs the startup message with version."""
         core = mock_imports["core"]

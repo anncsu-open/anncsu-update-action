@@ -62,6 +62,7 @@ class MockSettings:
 
     codice_comune: str = "I501"
     coordinate_distance_threshold: float = 0.001
+    dry_run: bool = False
     geocoded_table: str = "geocoded_civici"
 
     def model_dump_json(self) -> str:
@@ -858,6 +859,7 @@ class MockSettingsForMain:
     def __init__(self):
         self.codice_comune = "I501"
         self.coordinate_distance_threshold = 0.001
+        self.dry_run = False
 
     def model_dump_json(self) -> str:
         return '{"codice_comune": "I501", "coordinate_distance_threshold": 0.001}'
