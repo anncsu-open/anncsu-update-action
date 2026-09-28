@@ -20,6 +20,7 @@ from main_with_cli import (
     process_entry,
     process_all_entries,
     load_geodiff_report,
+    load_geodiff_schema,
     authenticate_cli,
     run_action,
 )
@@ -27,6 +28,8 @@ from main_with_cli import (
 # Import mock classes for type hints (they're defined in conftest.py)
 # We need to import them here since we use them as type annotations
 # from conftest import MockLogger, MockSettings, MockCliRunner, MockCliResult, MockGeoDiff, MockGeometry, MockPoint
+import main_with_cli
+
 from conftest import (
     MockCliRunner,
     MockCliResult,
@@ -1167,6 +1170,44 @@ class TestAuthenticateCli:
 
 
 # ============================================================================
+# Tests for load_geodiff_schema function
+# ============================================================================
+
+
+class TestLoadGeodiffSchema:
+    def test_load_real_schema_from_text(self, geodiff_real_schema_json, mock_logger):
+        assert load_geodiff_schema(geodiff_real_schema_json, mock_logger) is True
+
+        assert main_with_cli.COLUMN_ADDRESS_ID == 0
+        assert main_with_cli.COLUMN_GEOMETRY == 1
+        assert main_with_cli.COLUMN_ROAD_ID == 8
+        assert main_with_cli.COLUMN_PLUGIN_SCORE == 24
+        assert main_with_cli.COLUMN_PLUGIN_GEOCODER == 25
+
+    def test_load_schema_from_file(self, tmp_path, geodiff_real_schema_json, mock_logger):
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(geodiff_real_schema_json)
+
+        assert load_geodiff_schema(str(schema_file), mock_logger) is True
+        assert main_with_cli.COLUMN_ROAD_ID == 8
+
+    def test_missing_column_keeps_default(self, mock_logger):
+        default_score = main_with_cli.COLUMN_PLUGIN_SCORE
+        schema = '[{"name": "PROGRESSIVO_ACCESSO", "column": 3}]'
+
+        assert load_geodiff_schema(schema, mock_logger) is True
+        assert main_with_cli.COLUMN_ADDRESS_ID == 3
+        assert main_with_cli.COLUMN_PLUGIN_SCORE == default_score
+        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("PLUGIN_SCORE" in msg for msg in warn_messages)
+
+    def test_invalid_schema(self, mock_logger):
+        assert load_geodiff_schema("invalid json", mock_logger) is False
+        error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
+        assert any("geodiff_schema" in msg for msg in error_messages)
+
+
+# ============================================================================
 # Tests for run_action function
 # ============================================================================
 
@@ -1174,6 +1215,7 @@ class TestAuthenticateCli:
 class TestRunAction:
     def test_run_action_success(
         self,
+        geodiff_schema_json,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_runner,
@@ -1191,6 +1233,7 @@ class TestRunAction:
 
         result = run_action(
             geodiff_report=geodiff_real_coord_update_json,
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -1206,6 +1249,7 @@ class TestRunAction:
 
     def test_run_action_invalid_report(
         self,
+        geodiff_schema_json,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -1215,6 +1259,7 @@ class TestRunAction:
     ):
         result = run_action(
             geodiff_report="invalid json",
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -1232,6 +1277,7 @@ class TestRunAction:
 
     def test_run_action_auth_failure(
         self,
+        geodiff_schema_json,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_app,
@@ -1243,6 +1289,7 @@ class TestRunAction:
 
         result = run_action(
             geodiff_report=geodiff_real_coord_update_json,
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -1260,6 +1307,7 @@ class TestRunAction:
 
     def test_run_action_partial_entry_failure(
         self,
+        geodiff_schema_json,
         geodiff_real_value_update_json,  # No geometry, will fail
         mock_settings,
         mock_cli_runner,
@@ -1270,6 +1318,7 @@ class TestRunAction:
     ):
         result = run_action(
             geodiff_report=geodiff_real_value_update_json,
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -1285,6 +1334,7 @@ class TestRunAction:
 
     def test_run_action_with_file(
         self,
+        geodiff_schema_json,
         tmp_path,
         geodiff_real_coord_update_json,
         mock_settings,
@@ -1306,6 +1356,7 @@ class TestRunAction:
 
         result = run_action(
             geodiff_report=str(report_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -1319,6 +1370,7 @@ class TestRunAction:
 
     def test_run_action_empty_geodiff(
         self,
+        geodiff_schema_json,
         geodiff_empty_json,
         mock_settings,
         mock_cli_runner,
@@ -1329,6 +1381,7 @@ class TestRunAction:
     ):
         result = run_action(
             geodiff_report=geodiff_empty_json,
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,

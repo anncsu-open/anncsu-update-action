@@ -74,6 +74,13 @@ class GeometryProtocol(Protocol):
 # Column index constants for geodiff entries
 # ============================================================================
 
+# column names used to look up the indices in the geodiff schema
+COLUMN_NAME_ADDRESS_ID = "PROGRESSIVO_ACCESSO"
+COLUMN_NAME_GEOMETRY = "geom"
+COLUMN_NAME_ROAD_ID = "PROGRESSIVO_NAZIONALE"
+COLUMN_NAME_PLUGIN_SCORE = "PLUGIN_SCORE"
+COLUMN_NAME_PLUGIN_GEOCODER = "PLUGIN_GEOCODER"
+# default column indices for geodiff entries (overridden by load_geodiff_schema)
 COLUMN_ADDRESS_ID = 0  # PROGRESSIVO_ACCESSO
 COLUMN_GEOMETRY = 1
 COLUMN_ROAD_ID = 4  # PROGRESSIVO_NAZIONALE
@@ -504,6 +511,67 @@ def load_geodiff_report(geodiff_report: str, logger: LoggerProtocol) -> GeodiffF
 
 
 # ============================================================================
+# Geodiff schema loading
+# ============================================================================
+
+
+def load_geodiff_schema(geodiff_schema: str, logger: LoggerProtocol) -> bool:
+    """Set the COLUMN_* index globals from a geodiff schema.
+
+    The schema is a JSON list of {"name": <column name>, "column": <index>}
+    objects. Each COLUMN_* global is looked up by its COLUMN_NAME_* value;
+    columns not present in the schema keep their default index.
+
+    Args:
+        geodiff_schema: File path or JSON text of the geodiff schema
+        logger: Logger for output
+
+    Returns:
+        True if the schema was loaded, False otherwise
+    """
+    global COLUMN_ADDRESS_ID, COLUMN_GEOMETRY, COLUMN_ROAD_ID
+    global COLUMN_PLUGIN_SCORE, COLUMN_PLUGIN_GEOCODER
+
+    # Try as file path first, then fall back to JSON text
+    try:
+        schema_path = Path(geodiff_schema)
+        if schema_path.exists():
+            logger.info(f"Found geodiff schema file: {schema_path}")
+            schema_text = schema_path.read_text()
+        else:
+            schema_text = geodiff_schema
+    except Exception as exc:
+        logger.debug(f"Not a valid file path: {exc}")
+        schema_text = geodiff_schema
+
+    try:
+        schema = json.loads(schema_text)
+        name_to_index = {item["name"]: int(item["column"]) for item in schema}
+    except Exception as exc:
+        logger.error(f"Failed to parse geodiff_schema: {exc}")
+        return False
+
+    def lookup(name: str, default: int) -> int:
+        if name not in name_to_index:
+            logger.warn(f"Column '{name}' not found in geodiff schema; using default index {default}")
+            return default
+        return name_to_index[name]
+
+    COLUMN_ADDRESS_ID = lookup(COLUMN_NAME_ADDRESS_ID, COLUMN_ADDRESS_ID)
+    COLUMN_GEOMETRY = lookup(COLUMN_NAME_GEOMETRY, COLUMN_GEOMETRY)
+    COLUMN_ROAD_ID = lookup(COLUMN_NAME_ROAD_ID, COLUMN_ROAD_ID)
+    COLUMN_PLUGIN_SCORE = lookup(COLUMN_NAME_PLUGIN_SCORE, COLUMN_PLUGIN_SCORE)
+    COLUMN_PLUGIN_GEOCODER = lookup(COLUMN_NAME_PLUGIN_GEOCODER, COLUMN_PLUGIN_GEOCODER)
+
+    logger.info(
+        f"Column indices: address_id={COLUMN_ADDRESS_ID}, geometry={COLUMN_GEOMETRY}, "
+        f"road_id={COLUMN_ROAD_ID}, plugin_score={COLUMN_PLUGIN_SCORE}, "
+        f"plugin_geocoder={COLUMN_PLUGIN_GEOCODER}"
+    )
+    return True
+
+
+# ============================================================================
 # CLI Authentication
 # ============================================================================
 
@@ -554,6 +622,7 @@ def authenticate_cli(
 
 def run_action(
     geodiff_report: str,
+    geodiff_schema: str,
     settings: SettingsProtocol,
     cli_runner: CliRunnerProtocol,
     cli_app: Any,
@@ -570,6 +639,7 @@ def run_action(
 
     Args:
         geodiff_report: File path or JSON text of the geodiff report
+        geodiff_schema: File path or JSON text of the geodiff schema
         settings: Application settings
         cli_runner: CLI runner instance
         cli_app: ANNCSU CLI app
@@ -584,6 +654,11 @@ def run_action(
     """
     logger.info("Update ANNCSU DB from geodiff report...")
     logger.info(f"Using codice_comune: \033[36;1m{settings.codice_comune}\033[0m")
+
+    # Set column indices from geodiff schema
+    if not load_geodiff_schema(geodiff_schema, logger):
+        logger.error("Could not load geodiff schema; aborting")
+        return False
 
     # Load geodiff report
     geodiff_obj = load_geodiff_report(geodiff_report, logger)
@@ -644,7 +719,9 @@ def main() -> None:
 
     # Get inputs
     geodiff_report: str = core.get_input("geodiff_report", True)
+    geodiff_schema: str = core.get_input("geodiff_schema", True)
     core.info(f"geodiff_report: \033[36;1m{geodiff_report}")
+    core.info(f"geodiff_schema: \033[36;1m{geodiff_schema}")
     _token: str = core.get_input("token", True)  # noqa: F841
 
     # Debug info
@@ -673,6 +750,7 @@ def main() -> None:
     # Run the action
     success = run_action(
         geodiff_report=geodiff_report,
+        geodiff_schema=geodiff_schema,
         settings=settings,
         cli_runner=cli_runner,
         cli_app=app,

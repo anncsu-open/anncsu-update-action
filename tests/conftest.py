@@ -1133,3 +1133,76 @@ def DummyCliRunner():
             return SimpleNamespace(exit_code=0, output="ok")
 
     return DummyCliRunner
+
+
+# ============================================================================
+# Geodiff schema fixtures
+# ============================================================================
+
+
+@pytest.fixture(autouse=True)
+def reset_column_indices():
+    """Restore main_with_cli COLUMN_* globals, since load_geodiff_schema mutates them."""
+    import main_with_cli
+
+    names = [
+        "COLUMN_ADDRESS_ID",
+        "COLUMN_GEOMETRY",
+        "COLUMN_ROAD_ID",
+        "COLUMN_PLUGIN_SCORE",
+        "COLUMN_PLUGIN_GEOCODER",
+    ]
+    saved = {name: getattr(main_with_cli, name) for name in names}
+    yield
+    for name, value in saved.items():
+        setattr(main_with_cli, name, value)
+
+
+@pytest.fixture
+def geodiff_schema_json():
+    """Geodiff schema matching the column layout used by the test geodiff reports."""
+    return json.dumps(
+        [
+            {"name": "PROGRESSIVO_ACCESSO", "column": 0},
+            {"name": "geom", "column": 1},
+            {"name": "fid", "column": 2},
+            {"name": "ODONIMO", "column": 3},
+            {"name": "PROGRESSIVO_NAZIONALE", "column": 4},
+            {"name": "PLUGIN_SCORE", "column": 20},
+            {"name": "PLUGIN_GEOCODER", "column": 21},
+        ]
+    )
+
+
+@pytest.fixture
+def geodiff_real_schema_json():
+    """Geodiff schema of the real geocoded civici table."""
+    names = [
+        "PROGRESSIVO_ACCESSO",
+        "geom",
+        "fid",
+        "PLUGIN_COMUNE",
+        "PLUGIN_PROVINCIA",
+        "PLUGIN_REGIONE",
+        "CODICE_COMUNE",
+        "CODICE_ISTAT",
+        "PROGRESSIVO_NAZIONALE",
+        "CODICE_COMUNALE",
+        "ODONIMO",
+        "LOCALITA'",
+        "DIZIONE_LINGUA1",
+        "DIZIONE_LINGUA2",
+        "CODICE_COMUNALE_ACCESSO",
+        "CIVICO",
+        "ESPONENTE",
+        "SPECIFICITA",
+        "METRICO",
+        "PROGRESSIVO_SNC",
+        "COORD_X_COMUNE",
+        "COORD_Y_COMUNE",
+        "QUOTA",
+        "METODO",
+        "PLUGIN_SCORE",
+        "PLUGIN_GEOCODER",
+    ]
+    return json.dumps([{"name": name, "column": index} for index, name in enumerate(names)])

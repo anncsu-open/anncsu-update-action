@@ -216,6 +216,7 @@ class TestRunActionIntegration:
 
     def test_run_action_with_delete_report_file(
         self,
+        geodiff_schema_json,
         geodiff_delete_report_file,
         mock_settings,
         mock_cli_runner,
@@ -230,6 +231,7 @@ class TestRunActionIntegration:
 
         result = run_action(
             geodiff_report=str(geodiff_delete_report_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -245,6 +247,7 @@ class TestRunActionIntegration:
 
     def test_run_action_with_insert_report_file(
         self,
+        geodiff_schema_json,
         geodiff_insert_report_file,
         mock_settings,
         mock_cli_runner,
@@ -265,6 +268,7 @@ class TestRunActionIntegration:
 
         result = run_action(
             geodiff_report=str(geodiff_insert_report_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -280,6 +284,7 @@ class TestRunActionIntegration:
 
     def test_run_action_with_mixed_report_file(
         self,
+        geodiff_schema_json,
         geodiff_mixed_report_file,
         mock_settings,
         mock_cli_runner,
@@ -300,6 +305,7 @@ class TestRunActionIntegration:
 
         result = run_action(
             geodiff_report=str(geodiff_mixed_report_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -315,6 +321,7 @@ class TestRunActionIntegration:
 
     def test_run_action_auth_then_process(
         self,
+        geodiff_schema_json,
         geodiff_mixed_report_file,
         mock_settings,
         mock_cli_app,
@@ -353,6 +360,7 @@ class TestRunActionIntegration:
 
         result = run_action(
             geodiff_report=str(geodiff_mixed_report_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -378,7 +386,7 @@ class TestErrorScenariosIntegration:
     """Integration tests for error handling scenarios."""
 
     def test_run_action_with_malformed_json_file(
-        self, tmp_path, mock_settings, mock_cli_runner, mock_cli_app, mock_geodiff, mock_logger
+        self, tmp_path, geodiff_schema_json, mock_settings, mock_cli_runner, mock_cli_app, mock_geodiff, mock_logger
     ):
         """Test run_action with a file containing malformed JSON."""
         malformed_file = tmp_path / "malformed.json"
@@ -389,6 +397,7 @@ class TestErrorScenariosIntegration:
 
         result = run_action(
             geodiff_report=str(malformed_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -404,7 +413,7 @@ class TestErrorScenariosIntegration:
         assert len(error_messages) > 0
 
     def test_run_action_with_valid_json_invalid_schema(
-        self, tmp_path, mock_settings, mock_cli_runner, mock_cli_app, mock_geodiff, mock_logger
+        self, tmp_path, geodiff_schema_json, mock_settings, mock_cli_runner, mock_cli_app, mock_geodiff, mock_logger
     ):
         """Test run_action with valid JSON but invalid geodiff schema."""
         invalid_schema_file = tmp_path / "invalid_schema.json"
@@ -415,6 +424,7 @@ class TestErrorScenariosIntegration:
 
         result = run_action(
             geodiff_report=str(invalid_schema_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -430,7 +440,7 @@ class TestErrorScenariosIntegration:
         assert len(error_messages) > 0
 
     def test_run_action_with_empty_geodiff_file(
-        self, tmp_path, mock_settings, mock_cli_runner, mock_cli_app, mock_geodiff, mock_logger
+        self, tmp_path, geodiff_schema_json, mock_settings, mock_cli_runner, mock_cli_app, mock_geodiff, mock_logger
     ):
         """Test run_action with an empty geodiff entries array."""
         empty_file = tmp_path / "empty.json"
@@ -441,6 +451,7 @@ class TestErrorScenariosIntegration:
 
         result = run_action(
             geodiff_report=str(empty_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -856,6 +867,7 @@ class TestPluginSkipIntegration:
 
     def test_run_action_skips_plugin_score_anncsu_entries(
         self,
+        geodiff_schema_json,
         geodiff_plugin_skip_report_file,
         mock_settings,
         mock_cli_runner,
@@ -875,6 +887,7 @@ class TestPluginSkipIntegration:
 
         result = run_action(
             geodiff_report=str(geodiff_plugin_skip_report_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -892,6 +905,7 @@ class TestPluginSkipIntegration:
 
     def test_run_action_processes_plugin_no_skip_entries(
         self,
+        geodiff_schema_json,
         geodiff_plugin_no_skip_report_file,
         mock_settings,
         mock_cli_runner,
@@ -911,6 +925,7 @@ class TestPluginSkipIntegration:
 
         result = run_action(
             geodiff_report=str(geodiff_plugin_no_skip_report_file),
+            geodiff_schema=geodiff_schema_json,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
