@@ -23,7 +23,7 @@ from anncsu.common import PDNDAuthManager
 from anncsu.common.session import get_config_dir
 
 # Step 3: API Authentication
-from anncsu.coordinate.models import Security
+from anncsu.common import Security
 
 import functions
 from geodiff_models import GeodiffFile

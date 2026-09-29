@@ -4,11 +4,12 @@ These tests use dependency injection to test individual functions
 without requiring complex module mocking.
 """
 
+import base64
 import binascii
 import json
 import pytest
 
-from geodiff_models import GeodiffFile  # noqa: E402
+from geodiff_models import Change, GeodiffEntryDict, GeodiffFile  # noqa: E402
 
 # Import the module under test (now safe to import without side effects)
 from main_with_cli import (
@@ -116,11 +117,13 @@ class TestGeometryParsing:
 
 
 class TestExtractEntryData:
-    def test_extract_entry_data_update(self, geodiff_real_coord_update_json):
+    def test_extract_entry_data_update(self, geodiff_schema, geodiff_real_coord_update_json):
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+            GeodiffEntryDict.from_entry(entry, geodiff_schema)
+        )
 
         assert address_id == 28671616
         assert road_id == 1222582
@@ -128,22 +131,26 @@ class TestExtractEntryData:
         assert plugin_score is None
         assert plugin_geocoder is None
 
-    def test_extract_entry_data_insert(self, geodiff_insert_json):
+    def test_extract_entry_data_insert(self, geodiff_schema, geodiff_insert_json):
         geodiff = GeodiffFile.from_json_text(geodiff_insert_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+            GeodiffEntryDict.from_entry(entry, geodiff_schema)
+        )
 
-        assert address_id == 4
+        assert address_id == -4
         assert gpkg_geom == "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="
         assert plugin_score is None
         assert plugin_geocoder is None
 
-    def test_extract_entry_data_no_geometry(self, geodiff_real_value_update_json):
+    def test_extract_entry_data_no_geometry(self, geodiff_schema, geodiff_real_value_update_json):
         geodiff = GeodiffFile.from_json_text(geodiff_real_value_update_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+            GeodiffEntryDict.from_entry(entry, geodiff_schema)
+        )
 
         assert address_id == 28671617
         assert road_id == 1222582
@@ -151,22 +158,24 @@ class TestExtractEntryData:
         assert plugin_score is None
         assert plugin_geocoder is None
 
-    def test_extract_entry_data_with_plugin_score_and_geocoder(self):
+    def test_extract_entry_data_with_plugin_score_and_geocoder(self, geodiff_schema):
         from types import SimpleNamespace
 
         entry = SimpleNamespace(
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=99001, new=None),
-                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=5001, new=None),
-                SimpleNamespace(column=20, old=None, new="1.0"),
-                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+                Change(column=0, old=99001, new=None),
+                Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                Change(column=4, old=5001, new=None),
+                Change(column=20, old=None, new="1.0"),
+                Change(column=21, old=None, new="ANNCSU"),
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+            GeodiffEntryDict.from_entry(entry, geodiff_schema)
+        )
 
         assert address_id == 99001
         assert road_id == 5001
@@ -174,56 +183,62 @@ class TestExtractEntryData:
         assert plugin_score == 1.0
         assert plugin_geocoder == "ANNCSU"
 
-    def test_extract_entry_data_with_plugin_score_only(self):
+    def test_extract_entry_data_with_plugin_score_only(self, geodiff_schema):
         from types import SimpleNamespace
 
         entry = SimpleNamespace(
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=99002, new=None),
-                SimpleNamespace(column=20, old=None, new="0.8"),
+                Change(column=0, old=99002, new=None),
+                Change(column=20, old=None, new="0.8"),
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+            GeodiffEntryDict.from_entry(entry, geodiff_schema)
+        )
 
         assert address_id == 99002
         assert plugin_score == 0.8
         assert plugin_geocoder is None
 
-    def test_extract_entry_data_with_plugin_geocoder_only(self):
+    def test_extract_entry_data_with_plugin_geocoder_only(self, geodiff_schema):
         from types import SimpleNamespace
 
         entry = SimpleNamespace(
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=99003, new=None),
-                SimpleNamespace(column=21, old=None, new="OTHER"),
+                Change(column=0, old=99003, new=None),
+                Change(column=21, old=None, new="OTHER"),
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+            GeodiffEntryDict.from_entry(entry, geodiff_schema)
+        )
 
         assert address_id == 99003
         assert plugin_score is None
         assert plugin_geocoder == "OTHER"
 
-    def test_extract_entry_data_plugin_score_uses_old_when_new_is_none(self):
+    def test_extract_entry_data_plugin_score_uses_old_when_new_is_none(self, geodiff_schema):
         from types import SimpleNamespace
 
         entry = SimpleNamespace(
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=99004, new=None),
-                SimpleNamespace(column=20, old="1.0", new=None),
-                SimpleNamespace(column=21, old="ANNCSU", new=None),
+                Change(column=0, old=99004, new=None),
+                Change(column=20, old="1.0", new=None),
+                Change(column=21, old="ANNCSU", new=None),
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(entry)
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+            GeodiffEntryDict.from_entry(entry, geodiff_schema)
+        )
 
         assert plugin_score == 1.0
         assert plugin_geocoder == "ANNCSU"
@@ -237,6 +252,7 @@ class TestExtractEntryData:
 class TestProcessEntry:
     def test_process_entry_update_success(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_runner,
@@ -251,6 +267,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -274,6 +291,7 @@ class TestProcessEntry:
 
     def test_process_entry_update_cli_failure(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_app,
@@ -295,6 +313,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -311,6 +330,7 @@ class TestProcessEntry:
 
     def test_process_entry_missing_geometry(
         self,
+        geodiff_schema,
         geodiff_real_value_update_json,
         mock_settings,
         mock_cli_runner,
@@ -325,6 +345,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -343,6 +364,7 @@ class TestProcessEntry:
 
     def test_process_entry_insert_success(
         self,
+        geodiff_schema,
         geodiff_insert_json,
         mock_settings,
         mock_cli_runner,
@@ -357,6 +379,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -371,8 +394,9 @@ class TestProcessEntry:
         info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
         assert any("insert" in msg.lower() for msg in info_messages)
 
-    def test_process_entry_delete_success(
+    def test_process_entry_delete_not_implemented(
         self,
+        geodiff_schema,
         geodiff_delete_json,
         mock_settings,
         mock_cli_runner,
@@ -387,6 +411,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -396,13 +421,16 @@ class TestProcessEntry:
             logger=mock_logger,
         )
 
-        assert result is True
-        # Delete currently doesn't make CLI calls (TODO in code)
+        # Delete is not implemented yet: the entry is reported as failed
+        assert result is False
         info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
         assert any("Delete" in msg for msg in info_messages)
+        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("Delete action is not implemented yet" in msg for msg in warn_messages)
 
     def test_process_entry_invalid_geometry(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_runner,
@@ -420,6 +448,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -435,6 +464,7 @@ class TestProcessEntry:
 
     def test_process_entry_non_point_geometry(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_runner,
@@ -452,6 +482,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -467,6 +498,7 @@ class TestProcessEntry:
 
     def test_process_entry_unknown_action_type(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -479,8 +511,8 @@ class TestProcessEntry:
         # We bypass Pydantic validation to test defensive code
         from types import SimpleNamespace
 
-        mock_change = SimpleNamespace(column=0, old=1001, new=None)
-        mock_geom_change = SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=")
+        mock_change = Change(column=0, old=1001, new=None)
+        mock_geom_change = Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=")
         entry = SimpleNamespace(
             type="unknown_action",
             table="addresses",
@@ -489,6 +521,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]  # Intentionally bypassing Pydantic validation
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -498,13 +531,15 @@ class TestProcessEntry:
             logger=mock_logger,
         )
 
+        # the unknown type is rejected when the entry is mapped to column names
         assert result is False
-        # Check warning was logged about unknown action type
-        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
-        assert any("Unknown action type" in msg for msg in warn_messages)
+        assert mock_cli_runner.invocations == []
+        error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
+        assert any("Invalid geodiff entry" in msg and "type" in msg for msg in error_messages)
 
     def test_process_entry_anncsu_no_record_found(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_app,
@@ -523,6 +558,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -538,6 +574,7 @@ class TestProcessEntry:
 
     def test_process_entry_anncsu_multiple_records_found(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_app,
@@ -559,6 +596,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -574,6 +612,7 @@ class TestProcessEntry:
 
     def test_process_entry_anncsu_query_failure(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_app,
@@ -592,6 +631,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -607,6 +647,7 @@ class TestProcessEntry:
 
     def test_process_entry_coordinates_within_threshold(
         self,
+        geodiff_schema,
         geodiff_real_coord_update_json,
         mock_settings,
         mock_cli_app,
@@ -629,6 +670,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -646,6 +688,7 @@ class TestProcessEntry:
 
     def test_process_entry_insert_negative_address_id(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -654,13 +697,13 @@ class TestProcessEntry:
         mock_logger,
         mock_anncsu_consultazione,
     ):
-        """Test insert with negative address_id (new record without assigned ID)."""
+        """Test insert with negative address_id (new record) without ODONIMO: the road can't be found."""
         from types import SimpleNamespace
 
         # Create an insert entry with negative address_id
-        mock_change_addr = SimpleNamespace(column=0, old=None, new=-1)
-        mock_change_geom = SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=")
-        mock_change_road = SimpleNamespace(column=4, old=None, new=5001)
+        mock_change_addr = Change(column=0, old=None, new=-1)
+        mock_change_geom = Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA=")
+        mock_change_road = Change(column=4, old=None, new=5001)
         entry = SimpleNamespace(
             type="insert",
             table="addresses",
@@ -669,6 +712,7 @@ class TestProcessEntry:
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -679,11 +723,13 @@ class TestProcessEntry:
         )
 
         assert result is False
+        assert mock_cli_runner.invocations == []
         warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
-        assert any("Insert action with negative address_id" in msg for msg in warn_messages)
+        assert any("not found in ANNCSU; skipping insert for address_id=-1" in msg for msg in warn_messages)
 
     def test_process_entry_skipped_when_insert_with_plugin_score_1_and_geocoder_anncsu(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -702,16 +748,17 @@ class TestProcessEntry:
             type="insert",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=None, new=50001),
-                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=None, new=9001),
-                SimpleNamespace(column=20, old=None, new="1.0"),
-                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+                Change(column=0, old=None, new=50001),
+                Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                Change(column=4, old=None, new=9001),
+                Change(column=20, old=None, new="1.0"),
+                Change(column=21, old=None, new="ANNCSU"),
             ],
         )
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -728,6 +775,7 @@ class TestProcessEntry:
 
     def test_process_entry_update_not_skipped_when_plugin_score_1_and_geocoder_anncsu(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -746,16 +794,17 @@ class TestProcessEntry:
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=50006, new=None),
-                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=9006, new=None),
-                SimpleNamespace(column=20, old=None, new="1.0"),
-                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+                Change(column=0, old=50006, new=None),
+                Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                Change(column=4, old=9006, new=None),
+                Change(column=20, old=None, new="1.0"),
+                Change(column=21, old=None, new="ANNCSU"),
             ],
         )
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -771,6 +820,7 @@ class TestProcessEntry:
 
     def test_process_entry_not_skipped_when_plugin_score_not_1(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -786,16 +836,17 @@ class TestProcessEntry:
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=50002, new=None),
-                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=9002, new=None),
-                SimpleNamespace(column=20, old=None, new="0.5"),
-                SimpleNamespace(column=21, old=None, new="ANNCSU"),
+                Change(column=0, old=50002, new=None),
+                Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                Change(column=4, old=9002, new=None),
+                Change(column=20, old=None, new="0.5"),
+                Change(column=21, old=None, new="ANNCSU"),
             ],
         )
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -811,6 +862,7 @@ class TestProcessEntry:
 
     def test_process_entry_not_skipped_when_plugin_geocoder_not_anncsu(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -826,16 +878,17 @@ class TestProcessEntry:
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=50003, new=None),
-                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=9003, new=None),
-                SimpleNamespace(column=20, old=None, new="1.0"),
-                SimpleNamespace(column=21, old=None, new="OTHER_GEOCODER"),
+                Change(column=0, old=50003, new=None),
+                Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                Change(column=4, old=9003, new=None),
+                Change(column=20, old=None, new="1.0"),
+                Change(column=21, old=None, new="OTHER_GEOCODER"),
             ],
         )
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -850,6 +903,7 @@ class TestProcessEntry:
 
     def test_process_entry_not_skipped_when_plugin_fields_none(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -865,14 +919,15 @@ class TestProcessEntry:
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=50004, new=None),
-                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=9004, new=None),
+                Change(column=0, old=50004, new=None),
+                Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                Change(column=4, old=9004, new=None),
             ],
         )
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -887,6 +942,7 @@ class TestProcessEntry:
 
     def test_process_entry_not_skipped_when_only_plugin_score_present(
         self,
+        geodiff_schema,
         mock_settings,
         mock_cli_runner,
         mock_cli_app,
@@ -902,15 +958,16 @@ class TestProcessEntry:
             type="update",
             table="addresses",
             changes=[
-                SimpleNamespace(column=0, old=50005, new=None),
-                SimpleNamespace(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
-                SimpleNamespace(column=4, old=9005, new=None),
-                SimpleNamespace(column=20, old=None, new="1.0"),
+                Change(column=0, old=50005, new=None),
+                Change(column=1, old=None, new="R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="),
+                Change(column=4, old=9005, new=None),
+                Change(column=20, old=None, new="1.0"),
             ],
         )
 
         result = process_entry(
             entry=entry,  # type: ignore[arg-type]
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -932,6 +989,7 @@ class TestProcessEntry:
 class TestProcessAllEntries:
     def test_process_all_entries_multiple(
         self,
+        geodiff_schema,
         geodiff_multiple_entries_json,
         mock_settings,
         mock_cli_runner,
@@ -945,6 +1003,7 @@ class TestProcessAllEntries:
 
         results = process_all_entries(
             geodiff_file=geodiff,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -958,10 +1017,14 @@ class TestProcessAllEntries:
         assert results[0].entry_type == "update"
         assert results[1].entry_type == "insert"
         assert results[2].entry_type == "delete"
-        assert all(r.success for r in results)
+        assert results[0].success is True
+        assert results[1].success is True
+        # delete is not implemented yet
+        assert results[2].success is False
 
     def test_process_all_entries_empty(
         self,
+        geodiff_schema,
         geodiff_empty_json,
         mock_settings,
         mock_cli_runner,
@@ -975,6 +1038,7 @@ class TestProcessAllEntries:
 
         results = process_all_entries(
             geodiff_file=geodiff,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -988,6 +1052,7 @@ class TestProcessAllEntries:
 
     def test_process_all_entries_partial_failure(
         self,
+        geodiff_schema,
         geodiff_multiple_entries_json,
         mock_settings,
         mock_cli_app,
@@ -1018,6 +1083,7 @@ class TestProcessAllEntries:
 
         results = process_all_entries(
             geodiff_file=geodiff,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=cli_runner,
             cli_app=mock_cli_app,
@@ -1177,35 +1243,40 @@ class TestAuthenticateCli:
 
 class TestLoadGeodiffSchema:
     def test_load_real_schema_from_text(self, geodiff_real_schema_json, mock_logger):
-        assert load_geodiff_schema(geodiff_real_schema_json, mock_logger) is True
+        schema = load_geodiff_schema(geodiff_real_schema_json, mock_logger)
 
-        assert main_with_cli.COLUMN_ADDRESS_ID == 0
-        assert main_with_cli.COLUMN_GEOMETRY == 1
-        assert main_with_cli.COLUMN_ROAD_ID == 8
-        assert main_with_cli.COLUMN_PLUGIN_SCORE == 24
-        assert main_with_cli.COLUMN_PLUGIN_GEOCODER == 25
+        assert schema == json.loads(geodiff_real_schema_json)
+        info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
+        assert any("PROGRESSIVO_NAZIONALE=8" in msg and "ODONIMO=10" in msg for msg in info_messages)
 
     def test_load_schema_from_file(self, tmp_path, geodiff_real_schema_json, mock_logger):
         schema_file = tmp_path / "schema.json"
         schema_file.write_text(geodiff_real_schema_json)
 
-        assert load_geodiff_schema(str(schema_file), mock_logger) is True
-        assert main_with_cli.COLUMN_ROAD_ID == 8
+        assert load_geodiff_schema(str(schema_file), mock_logger) == json.loads(geodiff_real_schema_json)
 
-    def test_missing_column_keeps_default(self, mock_logger):
-        default_score = main_with_cli.COLUMN_PLUGIN_SCORE
+    def test_missing_column_warns(self, mock_logger):
         schema = '[{"name": "PROGRESSIVO_ACCESSO", "column": 3}]'
 
-        assert load_geodiff_schema(schema, mock_logger) is True
-        assert main_with_cli.COLUMN_ADDRESS_ID == 3
-        assert main_with_cli.COLUMN_PLUGIN_SCORE == default_score
+        assert load_geodiff_schema(schema, mock_logger) == [{"name": "PROGRESSIVO_ACCESSO", "column": 3}]
         warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
         assert any("PLUGIN_SCORE" in msg for msg in warn_messages)
+        assert not any("PROGRESSIVO_ACCESSO" in msg for msg in warn_messages)
 
     def test_invalid_schema(self, mock_logger):
-        assert load_geodiff_schema("invalid json", mock_logger) is False
+        assert load_geodiff_schema("invalid json", mock_logger) is None
         error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
         assert any("geodiff_schema" in msg for msg in error_messages)
+
+    def test_schema_item_without_name(self, mock_logger):
+        assert load_geodiff_schema('[{"column": 0}]', mock_logger) is None
+
+    def test_no_global_state(self, geodiff_real_schema_json, mock_logger):
+        load_geodiff_schema(geodiff_real_schema_json, mock_logger)
+
+        assert not any(
+            name.startswith("COLUMN_") and not name.startswith("COLUMN_NAME") for name in vars(main_with_cli)
+        )
 
 
 # ============================================================================
@@ -1393,6 +1464,606 @@ class TestRunAction:
         )
 
         assert result is True  # Empty is success (nothing to do)
+
+
+# ============================================================================
+# Tests for query_anncsu_road
+# ============================================================================
+
+
+def _roads_result(*roads):
+    return MockCliResult(exit_code=0, output=json.dumps(list(roads)))
+
+
+class TestQueryAnncsuRoad:
+    def test_single_road_returned(self, mock_cli_app, mock_logger):
+        road = {"prognaz": "907000", "dug": "VIA", "denomuff": "ROMA"}
+        runner = MockCliRunner(result=_roads_result(road))
+
+        result = main_with_cli.query_anncsu_road("VIA ROMA", "I501", runner, mock_cli_app, mock_logger)
+
+        assert result == road
+
+    def test_builds_odonimo_command_with_base64_denom(self, mock_cli_app, mock_logger):
+        runner = MockCliRunner(result=_roads_result({"prognaz": "1", "dug": "VIA", "denomuff": "ROMA"}))
+
+        main_with_cli.query_anncsu_road("  VIA ROMA ", "I501", runner, mock_cli_app, mock_logger)
+
+        _, args = runner.invocations[0]
+        assert args[:2] == ["pa", "odonimo"]
+        assert args[args.index("--codcom") + 1] == "I501"
+        assert base64.b64decode(args[args.index("--denom") + 1]).decode("utf-8") == "VIA ROMA"
+        assert "--production" in args
+        assert args[args.index("--token-endpoint") + 1] == main_with_cli.TOKEN_ENDPOINT
+        assert "--json" in args
+
+    def test_non_ascii_odonimo_is_encoded(self, mock_cli_app, mock_logger):
+        runner = MockCliRunner(result=_roads_result({"prognaz": "1", "dug": "VIA", "denomuff": "SANT'ANDREA ÀÈ"}))
+
+        main_with_cli.query_anncsu_road("VIA SANT'ANDREA ÀÈ", "I501", runner, mock_cli_app, mock_logger)
+
+        _, args = runner.invocations[0]
+        assert base64.b64decode(args[args.index("--denom") + 1]).decode("utf-8") == "VIA SANT'ANDREA ÀÈ"
+
+    def test_cli_failure_returns_none(self, mock_cli_app, mock_logger):
+        runner = MockCliRunner(result=MockCliResult(exit_code=1, output="No odonimo found"))
+
+        result = main_with_cli.query_anncsu_road("VIA ROMA", "I501", runner, mock_cli_app, mock_logger)
+
+        assert result is None
+        assert any(level == "warn" and "No ANNCSU road found" in msg for level, msg in mock_logger.messages)
+
+    def test_empty_result_returns_none(self, mock_cli_app, mock_logger):
+        runner = MockCliRunner(result=_roads_result())
+
+        assert main_with_cli.query_anncsu_road("VIA ROMA", "I501", runner, mock_cli_app, mock_logger) is None
+
+    @pytest.mark.parametrize("odonimo", ["", "   ", None])
+    def test_empty_odonimo_skips_cli(self, mock_cli_app, mock_logger, odonimo):
+        runner = MockCliRunner()
+
+        assert main_with_cli.query_anncsu_road(odonimo, "I501", runner, mock_cli_app, mock_logger) is None
+        assert runner.invocations == []
+
+    @pytest.mark.parametrize("odonimo", ["VIA ROMA", "via roma", "ROMA"])
+    def test_multiple_roads_selects_exact_match(self, mock_cli_app, mock_logger, odonimo):
+        roma = {"prognaz": "1", "dug": "VIA", "denomuff": "ROMA"}
+        runner = MockCliRunner(
+            result=_roads_result(
+                roma,
+                {"prognaz": "2", "dug": "VIA", "denomuff": "ROMA ANTICA"},
+                {"prognaz": "3", "dug": "PIAZZA", "denomuff": "ROMANA"},
+            )
+        )
+
+        result = main_with_cli.query_anncsu_road(odonimo, "I501", runner, mock_cli_app, mock_logger)
+
+        assert result == roma
+
+    def test_multiple_roads_without_exact_match_returns_none(self, mock_cli_app, mock_logger):
+        runner = MockCliRunner(
+            result=_roads_result(
+                {"prognaz": "2", "dug": "VIA", "denomuff": "ROMA ANTICA"},
+                {"prognaz": "3", "dug": "PIAZZA", "denomuff": "ROMANA"},
+            )
+        )
+
+        assert main_with_cli.query_anncsu_road("VIA ROMA", "I501", runner, mock_cli_app, mock_logger) is None
+
+    def test_multiple_exact_matches_returns_none(self, mock_cli_app, mock_logger):
+        # "ROMA" matches both roads by denomuff only
+        runner = MockCliRunner(
+            result=_roads_result(
+                {"prognaz": "1", "dug": "VIA", "denomuff": "ROMA"},
+                {"prognaz": "2", "dug": "PIAZZA", "denomuff": "ROMA"},
+            )
+        )
+
+        assert main_with_cli.query_anncsu_road("ROMA", "I501", runner, mock_cli_app, mock_logger) is None
+
+    def test_road_with_missing_fields(self, mock_cli_app, mock_logger):
+        road = {"prognaz": "1", "dug": None, "denomuff": "ROMA"}
+        runner = MockCliRunner(result=_roads_result(road, {"prognaz": "2", "dug": None, "denomuff": None}))
+
+        assert main_with_cli.query_anncsu_road("ROMA", "I501", runner, mock_cli_app, mock_logger) == road
+
+    def test_dry_run_runner_returns_searched_road(self, mock_cli_app, mock_logger):
+        runner = main_with_cli.DryRunCliRunner(mock_logger)
+
+        result = main_with_cli.query_anncsu_road("VIA ROMA", "I501", runner, mock_cli_app, mock_logger)
+
+        assert result == {"prognaz": "0", "dug": None, "denomuff": "VIA ROMA"}
+
+
+# ============================================================================
+# Tests for extract_odonimo and insert road check
+# ============================================================================
+
+
+def _insert_entry(*changes):
+    return GeodiffFile.from_json_text(
+        json.dumps({"geodiff": [{"table": "civici", "type": "insert", "changes": list(changes)}]})
+    ).geodiff[0]
+
+
+def _insert(entry, schema, address_id, settings, runner, cli_app, logger):
+    entry_dict = GeodiffEntryDict.from_entry(entry, schema)
+    return main_with_cli.insert_address(entry_dict, address_id, 13.0, 42.0, settings, runner, cli_app, logger)
+
+
+class TestExtractOdonimo:
+    def test_extract_new_value(self, geodiff_schema):
+        entry = _insert_entry({"column": 0, "new": 1}, {"column": 3, "new": "VIA ROMA"})
+
+        assert main_with_cli.extract_odonimo(GeodiffEntryDict.from_entry(entry, geodiff_schema)) == "VIA ROMA"
+
+    def test_extract_old_value(self, geodiff_schema):
+        entry = _insert_entry({"column": 3, "old": "VIA ROMA"})
+
+        assert main_with_cli.extract_odonimo(GeodiffEntryDict.from_entry(entry, geodiff_schema)) == "VIA ROMA"
+
+    def test_missing_column_returns_none(self, geodiff_schema):
+        entry = _insert_entry({"column": 0, "new": 1})
+
+        assert main_with_cli.extract_odonimo(GeodiffEntryDict.from_entry(entry, geodiff_schema)) is None
+
+    def test_uses_schema_column(self, geodiff_real_schema_json):
+        # in the real schema column 3 is PLUGIN_COMUNE and ODONIMO is column 10
+        entry = _insert_entry({"column": 3, "new": "not the road"}, {"column": 10, "new": "VIA ROMA"})
+
+        entry_dict = GeodiffEntryDict.from_entry(entry, json.loads(geodiff_real_schema_json))
+
+        assert main_with_cli.extract_odonimo(entry_dict) == "VIA ROMA"
+
+
+class TestExtractEntryDataBySchema:
+    def test_same_values_with_different_layouts(self, geodiff_schema, geodiff_real_schema_json):
+        test_layout = _insert_entry(
+            {"column": 0, "new": 7},
+            {"column": 1, "new": "R1AAAQ=="},
+            {"column": 4, "new": 501},
+            {"column": 20, "new": 0.5},
+            {"column": 21, "new": "NOMINATIM"},
+        )
+        real_layout = _insert_entry(
+            {"column": 0, "new": 7},
+            {"column": 1, "new": "R1AAAQ=="},
+            {"column": 8, "new": 501},
+            {"column": 24, "new": 0.5},
+            {"column": 25, "new": "NOMINATIM"},
+        )
+
+        expected = (7, 501, "R1AAAQ==", 0.5, "NOMINATIM")
+        assert extract_entry_data(GeodiffEntryDict.from_entry(test_layout, geodiff_schema)) == expected
+        real_schema = json.loads(geodiff_real_schema_json)
+        assert extract_entry_data(GeodiffEntryDict.from_entry(real_layout, real_schema)) == expected
+
+    def test_zero_new_value_is_not_replaced_by_old(self, geodiff_schema):
+        entry = GeodiffFile.from_json_text(
+            json.dumps(
+                {
+                    "geodiff": [
+                        {
+                            "table": "civici",
+                            "type": "update",
+                            "changes": [{"column": 0, "old": 7}, {"column": 20, "old": 1.0, "new": 0.0}],
+                        }
+                    ]
+                }
+            )
+        ).geodiff[0]
+
+        _, _, _, plugin_score, _ = extract_entry_data(GeodiffEntryDict.from_entry(entry, geodiff_schema))
+
+        assert plugin_score == 0.0
+
+
+class TestProcessEntrySchemaMismatch:
+    def test_unknown_column_skips_entry(
+        self,
+        geodiff_schema,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        entry = _insert_entry({"column": 0, "new": 42}, {"column": 99, "new": "?"})
+
+        result = process_entry(
+            entry=entry,
+            schema=geodiff_schema,
+            settings=mock_settings,
+            cli_runner=mock_cli_runner,
+            cli_app=mock_cli_app,
+            anncsu_sdk=mock_anncsu_consultazione,
+            geodiff=mock_geodiff,
+            wkb_loader=mock_wkb_loader,
+            logger=mock_logger,
+        )
+
+        assert result is False
+        assert mock_cli_runner.invocations == []
+        error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
+        assert any("Invalid geodiff entry" in msg and "Column 99" in msg for msg in error_messages)
+
+
+class TestUpdateCoordinates:
+    def _entry_dict(self, schema, entry_type="update"):
+        entry = GeodiffFile.from_json_text(
+            json.dumps(
+                {
+                    "geodiff": [
+                        {
+                            "table": "civici",
+                            "type": entry_type,
+                            "changes": [{"column": 0, "old": 42}, {"column": 1, "new": "R1AAAQ=="}],
+                        }
+                    ]
+                }
+            )
+        ).geodiff[0]
+        return GeodiffEntryDict.from_entry(entry, schema)
+
+    def test_updates_changed_coordinates(
+        self, geodiff_schema, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+    ):
+        entry_dict = self._entry_dict(geodiff_schema)
+
+        result = main_with_cli.update_coordinates(
+            entry_dict, 42, 13.0, 42.0, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+        )
+
+        assert result is True
+        commands = [args for _, args in mock_cli_runner.invocations]
+        assert [c[:2] for c in commands] == [["pa", "accesso"], ["coordinate", "update"]]
+        update = commands[1]
+        assert update[update.index("--progr-civico") + 1] == "42"
+        assert update[update.index("--x") + 1] == "13.000000000"
+        assert update[update.index("--y") + 1] == "42.000000000"
+
+    def test_logs_entry_type_table_and_changes(
+        self, geodiff_schema, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+    ):
+        entry_dict = self._entry_dict(geodiff_schema, entry_type="insert")
+
+        main_with_cli.update_coordinates(
+            entry_dict, 42, 13.0, 42.0, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+        )
+
+        info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
+        assert "insert 2 column values in civici with PK: address_id=42" in info_messages
+
+    def test_same_coordinates_skip_update(self, geodiff_schema, mock_settings, mock_cli_app, mock_logger):
+        runner = MockCliRunner(query_result=MockCliResult(exit_code=0, output='[{"coordX": 13.0, "coordY": 42.0}]'))
+
+        result = main_with_cli.update_coordinates(
+            self._entry_dict(geodiff_schema), 42, 13.0, 42.0, mock_settings, runner, mock_cli_app, mock_logger
+        )
+
+        assert result is True
+        assert [args[:2] for _, args in runner.invocations] == [["pa", "accesso"]]
+
+    def test_record_not_found(self, geodiff_schema, mock_settings, mock_cli_app, mock_logger):
+        runner = MockCliRunner(query_result=MockCliResult(exit_code=0, output="[]"))
+
+        result = main_with_cli.update_coordinates(
+            self._entry_dict(geodiff_schema), 42, 13.0, 42.0, mock_settings, runner, mock_cli_app, mock_logger
+        )
+
+        assert result is False
+        assert [args[:2] for _, args in runner.invocations] == [["pa", "accesso"]]
+
+    def test_update_command_failure(self, geodiff_schema, mock_settings, mock_cli_app, mock_logger):
+        runner = MockCliRunner(
+            query_result=MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]'),
+            result=MockCliResult(exit_code=1, output="boom"),
+        )
+
+        result = main_with_cli.update_coordinates(
+            self._entry_dict(geodiff_schema), 42, 13.0, 42.0, mock_settings, runner, mock_cli_app, mock_logger
+        )
+
+        assert result is False
+        error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
+        assert any("coordinate update failed" in msg for msg in error_messages)
+
+
+class TestDeleteAddress:
+    def test_delete_not_implemented(
+        self, geodiff_schema, geodiff_delete_json, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+    ):
+        entry = GeodiffFile.from_json_text(geodiff_delete_json).geodiff[0]
+        entry_dict = GeodiffEntryDict.from_entry(entry, geodiff_schema)
+
+        result = main_with_cli.delete_address(entry_dict, 2, mock_settings, mock_cli_runner, mock_cli_app, mock_logger)
+
+        assert result is False
+        assert mock_cli_runner.invocations == []
+        info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
+        assert "Delete 4 values from simple with PK: address_id=2" in info_messages
+        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("Delete action is not implemented yet" in msg for msg in warn_messages)
+
+
+class TestInsertAddress:
+    def test_queries_road_then_inserts_accesso(
+        self, geodiff_schema, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+    ):
+        entry = _insert_entry({"column": 0, "new": -42}, {"column": 3, "new": "VIA ROMA"}, {"column": 5, "new": 12})
+
+        result = _insert(entry, geodiff_schema, -42, mock_settings, mock_cli_runner, mock_cli_app, mock_logger)
+
+        assert result is True
+        commands = [args for _, args in mock_cli_runner.invocations]
+        assert [c[:2] for c in commands] == [["pa", "odonimo"], ["accesso", "insert"]]
+        road_query = commands[0]
+        assert road_query[road_query.index("--codcom") + 1] == mock_settings.codice_comune
+        assert base64.b64decode(road_query[road_query.index("--denom") + 1]).decode("utf-8") == "VIA ROMA"
+
+    def test_road_not_found_skips_update(self, geodiff_schema, mock_settings, mock_cli_app, mock_logger):
+        runner = MockCliRunner(
+            query_result=MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]'),
+            odonimo_result=MockCliResult(exit_code=1, output="No odonimo found"),
+        )
+        entry = _insert_entry({"column": 0, "new": -42}, {"column": 3, "new": "VIA INESISTENTE"})
+
+        result = _insert(entry, geodiff_schema, -42, mock_settings, runner, mock_cli_app, mock_logger)
+
+        assert result is False
+        assert [args[:2] for _, args in runner.invocations] == [["pa", "odonimo"]]
+        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("not found in ANNCSU; skipping insert" in msg for msg in warn_messages)
+
+    def test_missing_odonimo_skips_cli(
+        self, geodiff_schema, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+    ):
+        entry = _insert_entry({"column": 0, "new": -42})
+
+        result = _insert(entry, geodiff_schema, -42, mock_settings, mock_cli_runner, mock_cli_app, mock_logger)
+
+        assert result is False
+        assert mock_cli_runner.invocations == []
+
+    def test_positive_address_id_skips_insert(
+        self, geodiff_schema, mock_settings, mock_cli_runner, mock_cli_app, mock_logger
+    ):
+        # a positive address_id is an existing ANNCSU record: it should be an update, not an insert
+        entry = _insert_entry({"column": 0, "new": 42}, {"column": 3, "new": "VIA ROMA"}, {"column": 5, "new": 12})
+
+        result = _insert(entry, geodiff_schema, 42, mock_settings, mock_cli_runner, mock_cli_app, mock_logger)
+
+        assert result is False
+        assert mock_cli_runner.invocations == []
+        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("existing record should be an update" in msg for msg in warn_messages)
+
+    def test_invalid_road_query_output(self, geodiff_schema, mock_settings, mock_cli_app, mock_logger):
+        runner = MockCliRunner(odonimo_result=MockCliResult(exit_code=0, output="not json"))
+        entry = _insert_entry({"column": 0, "new": -42}, {"column": 3, "new": "VIA ROMA"})
+
+        result = _insert(entry, geodiff_schema, -42, mock_settings, runner, mock_cli_app, mock_logger)
+
+        assert result is False
+        error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
+        assert any("Invalid ANNCSU road query output" in msg for msg in error_messages)
+
+    def test_dry_run_insert_logs_road_query(self, geodiff_schema, mock_settings, mock_cli_app, mock_logger):
+        runner = main_with_cli.DryRunCliRunner(mock_logger)
+        entry = _insert_entry({"column": 0, "new": -42}, {"column": 3, "new": "VIA ROMA"}, {"column": 5, "new": 12})
+
+        result = _insert(entry, geodiff_schema, -42, mock_settings, runner, mock_cli_app, mock_logger)
+
+        assert result is True
+        assert [c[:2] for c in runner.calls] == [["pa", "odonimo"], ["accesso", "insert"]]
+
+
+class TestInsertAccessoCommand:
+    """Tests for the "accesso insert" CLI command built from the entry (real schema layout)."""
+
+    ROAD = {"prognaz": "2000449", "dug": "VIA", "denomuff": "ROMA"}
+
+    def _run(self, schema_json, changes, settings, cli_app, logger, road=None, insert_result=None):
+        runner = MockCliRunner(
+            odonimo_result=MockCliResult(exit_code=0, output=json.dumps([road or self.ROAD])),
+            result=insert_result or MockCliResult(exit_code=0, output='{"esito": "OK"}'),
+        )
+        entry = _insert_entry({"column": 0, "new": -42}, {"column": 10, "new": "VIA ROMA"}, *changes)
+        result = _insert(entry, json.loads(schema_json), -42, settings, runner, cli_app, logger)
+        inserts = [args for _, args in runner.invocations if args[:2] == ["accesso", "insert"]]
+        return result, inserts
+
+    @staticmethod
+    def _opts(args):
+        """Map each --option to its value (flags without a value map to True)."""
+        opts = {}
+        i = 2
+        while i < len(args):
+            if i + 1 < len(args) and not args[i + 1].startswith("--"):
+                opts[args[i]] = args[i + 1]
+                i += 2
+            else:
+                opts[args[i]] = True
+                i += 1
+        return opts
+
+    def test_all_values_from_entry(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
+        changes = [
+            {"column": 6, "new": "A062"},  # CODICE_COMUNE
+            {"column": 8, "new": 111},  # PROGRESSIVO_NAZIONALE: ignored, prognaz comes from the road
+            {"column": 14, "new": "CC-1"},  # CODICE_COMUNALE_ACCESSO
+            {"column": 15, "new": 12},  # CIVICO
+            {"column": 16, "new": "BIS"},  # ESPONENTE
+            {"column": 17, "new": "ROSSO"},  # SPECIFICITA
+            {"column": 22, "new": 120.5},  # QUOTA
+            {"column": 23, "new": 2},  # METODO
+        ]
+
+        result, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert result is True
+        assert len(inserts) == 1
+        opts = self._opts(inserts[0])
+        assert opts == {
+            "--production": True,
+            "--codcom": "A062",
+            "--prognaz": "2000449",
+            "--numero": "12",
+            "--esponente": "BIS",
+            "--specificita": "ROSSO",
+            "--codice-civico-comunale": "CC-1",
+            "--coord-x": "13.000000000",
+            "--coord-y": "42.000000000",
+            "--coord-z": "120.5",
+            "--metodo": "2",
+            "--token-endpoint": main_with_cli.TOKEN_ENDPOINT,
+            "--json": True,
+        }
+
+    def test_metrico_instead_of_numero(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
+        changes = [{"column": 8, "new": 2000449}, {"column": 18, "new": 350}]  # METRICO
+
+        result, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert result is True
+        opts = self._opts(inserts[0])
+        assert opts["--metrico"] == "350"
+        assert "--numero" not in opts
+
+    def test_missing_optional_values_are_omitted(
+        self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger
+    ):
+        changes = [{"column": 8, "new": 2000449}, {"column": 15, "new": 12}, {"column": 16, "new": ""}]
+
+        _, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        opts = self._opts(inserts[0])
+        for option in ("--esponente", "--specificita", "--codice-civico-comunale", "--coord-z", "--metrico"):
+            assert option not in opts
+        assert opts["--metodo"] == main_with_cli.DEFAULT_METODO
+
+    def test_integral_float_civico_has_no_decimals(
+        self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger
+    ):
+        changes = [{"column": 8, "new": 2000449}, {"column": 15, "new": 12.0}]
+
+        _, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert self._opts(inserts[0])["--numero"] == "12"
+
+    def test_codcom_falls_back_to_settings(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
+        changes = [{"column": 8, "new": 2000449}, {"column": 15, "new": 12}]
+
+        _, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert self._opts(inserts[0])["--codcom"] == mock_settings.codice_comune
+
+    def test_prognaz_from_road(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
+        changes = [{"column": 15, "new": 12}]
+
+        _, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert self._opts(inserts[0])["--prognaz"] == "2000449"
+
+    def test_entry_prognaz_is_ignored(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
+        changes = [{"column": 8, "new": 111}, {"column": 15, "new": 12}]
+
+        _, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert self._opts(inserts[0])["--prognaz"] == "2000449"
+
+    def test_road_without_prognaz_skips_insert(
+        self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger
+    ):
+        changes = [{"column": 15, "new": 12}]
+        road = {"prognaz": None, "dug": "VIA", "denomuff": "ROMA"}
+
+        result, inserts = self._run(
+            geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger, road=road
+        )
+
+        assert result is False
+        assert inserts == []
+
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            [{"column": 8, "new": 2000449}],  # neither CIVICO nor METRICO
+            [{"column": 8, "new": 2000449}, {"column": 15, "new": 12}, {"column": 18, "new": 350}],  # both
+        ],
+    )
+    def test_numero_xor_metrico_required(
+        self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger, changes
+    ):
+        result, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert result is False
+        assert inserts == []
+        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("Exactly one of CIVICO" in msg for msg in warn_messages)
+
+    def test_dry_run_setting_skips_insert(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
+        mock_settings.dry_run = True
+        changes = [{"column": 8, "new": 2000449}, {"column": 15, "new": 12}]
+
+        result, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        # road lookup still runs, the insert is only logged
+        assert result is True
+        assert inserts == []
+        info_messages = [msg for level, msg in mock_logger.messages if level == "info"]
+        dry_run_logs = [msg for msg in info_messages if msg.startswith("[DRY RUN] would insert ANNCSU accesso")]
+        assert len(dry_run_logs) == 1
+        assert "address_id=-42" in dry_run_logs[0]
+        assert "accesso insert --production --codcom I501 --prognaz 2000449 --numero 12" in dry_run_logs[0]
+
+    def test_dry_run_setting_skips_insert_even_if_it_would_fail(
+        self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger
+    ):
+        mock_settings.dry_run = True
+        changes = [{"column": 8, "new": 2000449}, {"column": 15, "new": 12}]
+
+        result, inserts = self._run(
+            geodiff_real_schema_json,
+            changes,
+            mock_settings,
+            mock_cli_app,
+            mock_logger,
+            insert_result=MockCliResult(exit_code=1, output="rejected"),
+        )
+
+        assert result is True
+        assert inserts == []
+
+    def test_dry_run_setting_still_validates_entry(
+        self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger
+    ):
+        mock_settings.dry_run = True
+        changes = [{"column": 8, "new": 2000449}]  # neither CIVICO nor METRICO
+
+        result, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert result is False
+        assert not any("[DRY RUN]" in msg for _, msg in mock_logger.messages)
+
+    def test_insert_failure(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
+        changes = [{"column": 8, "new": 2000449}, {"column": 15, "new": 12}]
+
+        result, inserts = self._run(
+            geodiff_real_schema_json,
+            changes,
+            mock_settings,
+            mock_cli_app,
+            mock_logger,
+            insert_result=MockCliResult(exit_code=1, output="rejected"),
+        )
+
+        assert result is False
+        assert len(inserts) == 1
+        error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
+        assert any("accesso insert failed: rejected" in msg for msg in error_messages)
 
 
 # ============================================================================
@@ -1587,7 +2258,7 @@ class TestDryRun:
 
         assert result is True
 
-    def test_run_action_dry_run_delete_makes_no_cli_calls(
+    def test_run_action_dry_run_delete_not_implemented(
         self,
         geodiff_schema_json,
         geodiff_delete_json,
@@ -1610,7 +2281,8 @@ class TestDryRun:
             mock_logger,
         )
 
-        assert result is True
+        # delete is not implemented yet, but no CLI call is made anyway
+        assert result is False
         assert captured_dry_runners[0].calls == []
 
     def test_run_action_dry_run_invalid_report_still_fails(

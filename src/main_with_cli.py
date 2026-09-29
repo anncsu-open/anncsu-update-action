@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Protocol, Any, runtime_checkable
 from unittest.mock import MagicMock
 
-from geodiff_models import GeodiffFile, GeodiffEntry
+from geodiff_models import GeodiffEntry, GeodiffEntryDict, GeodiffFile, GeodiffSchema
 
 # using ANNCSU-SDK to query the database for existing records and to perform updates via CLI calls
 from anncsu.common import Security
@@ -34,8 +34,8 @@ class LoggerProtocol(Protocol):
     def warn(self, message: str) -> None: ...
     def error(self, message: str) -> None: ...
     def set_failed(self, message: str) -> None: ...
-    def group(self, name: str) -> Any: ...
-    def get_input(self, name: str, required: bool = False) -> str: ...
+    def group(self, name: str, /) -> Any: ...
+    def get_input(self, name: str, required: bool = False, /) -> str: ...
 
 
 @runtime_checkable
@@ -60,7 +60,7 @@ class CliRunnerProtocol(Protocol):
 class GeoDiffProtocol(Protocol):
     """Protocol for GeoDiff operations."""
 
-    def create_wkb_from_gpkg_header(self, data: bytes) -> list[bytes]: ...
+    def create_wkb_from_gpkg_header(self, data: bytes, /) -> list[bytes]: ...
 
 
 @runtime_checkable
@@ -73,21 +73,46 @@ class GeometryProtocol(Protocol):
 
 
 # ============================================================================
-# Column index constants for geodiff entries
+# Column names of geodiff entries
 # ============================================================================
 
-# column names used to look up the indices in the geodiff schema
+# ANNCSU interop authentication endpoint used by all CLI calls (a public URL, not a secret)
+TOKEN_ENDPOINT = "https://auth.interop.pagopa.it/token.oauth2"  # nosec B105
+
+# column names used to look up the entry values through the geodiff schema
 COLUMN_NAME_ADDRESS_ID = "PROGRESSIVO_ACCESSO"
 COLUMN_NAME_GEOMETRY = "geom"
 COLUMN_NAME_ROAD_ID = "PROGRESSIVO_NAZIONALE"
+COLUMN_NAME_ODONIMO = "ODONIMO"
 COLUMN_NAME_PLUGIN_SCORE = "PLUGIN_SCORE"
 COLUMN_NAME_PLUGIN_GEOCODER = "PLUGIN_GEOCODER"
-# default column indices for geodiff entries (overridden by load_geodiff_schema)
-COLUMN_ADDRESS_ID = 0  # PROGRESSIVO_ACCESSO
-COLUMN_GEOMETRY = 1
-COLUMN_ROAD_ID = 4  # PROGRESSIVO_NAZIONALE
-COLUMN_PLUGIN_SCORE = 20  # PLUGIN_SCORE (if available in the geodiff report)
-COLUMN_PLUGIN_GEOCODER = 21  # PLUGIN_GEOCODER (if available in the geodiff report)
+COLUMN_NAME_CODICE_COMUNE = "CODICE_COMUNE"
+COLUMN_NAME_CIVICO = "CIVICO"
+COLUMN_NAME_METRICO = "METRICO"
+COLUMN_NAME_ESPONENTE = "ESPONENTE"
+COLUMN_NAME_SPECIFICITA = "SPECIFICITA"
+COLUMN_NAME_CODICE_COMUNALE_ACCESSO = "CODICE_COMUNALE_ACCESSO"
+COLUMN_NAME_QUOTA = "QUOTA"
+COLUMN_NAME_METODO = "METODO"
+COLUMN_NAMES = (
+    COLUMN_NAME_ADDRESS_ID,
+    COLUMN_NAME_GEOMETRY,
+    COLUMN_NAME_ROAD_ID,
+    COLUMN_NAME_ODONIMO,
+    COLUMN_NAME_PLUGIN_SCORE,
+    COLUMN_NAME_PLUGIN_GEOCODER,
+    COLUMN_NAME_CODICE_COMUNE,
+    COLUMN_NAME_CIVICO,
+    COLUMN_NAME_METRICO,
+    COLUMN_NAME_ESPONENTE,
+    COLUMN_NAME_SPECIFICITA,
+    COLUMN_NAME_CODICE_COMUNALE_ACCESSO,
+    COLUMN_NAME_QUOTA,
+    COLUMN_NAME_METODO,
+)
+
+# default metodo di rilevazione used when the entry has no METODO value
+DEFAULT_METODO = "4"
 
 
 # ============================================================================
@@ -129,7 +154,8 @@ class DryRunCliRunner:
     """CLI runner that logs commands instead of executing them.
 
     The "pa accesso" query returns a fake record without coordinates, so the
-    coordinate update command is always reached and logged.
+    coordinate update command is always reached and logged. The "pa odonimo"
+    query returns a fake road named as the searched one.
     """
 
     def __init__(self, logger: LoggerProtocol):
@@ -142,6 +168,10 @@ class DryRunCliRunner:
         if args[:2] == ["pa", "accesso"]:
             prognazacc = args[args.index("--prognazacc") + 1] if "--prognazacc" in args else ""
             output = json.dumps([{"prognazacc": prognazacc, "coordX": None, "coordY": None}])
+        elif args[:2] == ["pa", "odonimo"]:
+            denom = args[args.index("--denom") + 1] if "--denom" in args else ""
+            denomuff = base64.b64decode(denom).decode("utf-8") if denom else ""
+            output = json.dumps([{"prognaz": "0", "dug": None, "denomuff": denomuff}])
         else:
             output = json.dumps({"dry_run": True})
         return DryRunCliResult(exit_code=0, output=output)
@@ -227,43 +257,466 @@ def parse_gpkg_to_coordinates(
 # ============================================================================
 
 
-def extract_entry_data(entry: GeodiffEntry) -> tuple[int | None, int | None, str | None, float | None, str | None]:
-    """Extract address_id, road_id, and geometry from a geodiff entry.
+def extract_entry_data(
+    entry_dict: GeodiffEntryDict,
+) -> tuple[int | None, int | None, str | None, float | None, str | None]:
+    """Extract address_id, road_id, geometry and plugin values from a geodiff entry.
 
     Args:
-        entry: GeodiffEntry to process
+        entry_dict: Geodiff entry changes keyed by column name
 
     Returns:
-        Tuple of (address_id, road_id, gpkg_geom)
+        Tuple of (address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder)
     """
-    address_id = None
-    road_id = None
-    gpkg_geom = None
-    plugin_score = None
-    plugin_geoconder = None
+    address_id = entry_dict.value(COLUMN_NAME_ADDRESS_ID)
+    road_id = entry_dict.value(COLUMN_NAME_ROAD_ID)
+    gpkg_geom = entry_dict.value(COLUMN_NAME_GEOMETRY)
+    plugin_score = entry_dict.value(COLUMN_NAME_PLUGIN_SCORE)
+    plugin_geoconder = entry_dict.value(COLUMN_NAME_PLUGIN_GEOCODER)
 
-    for change in entry.changes:
-        if change.column == COLUMN_ADDRESS_ID:
-            value = change.new or change.old
-            address_id = int(value) if value is not None else None
-        elif change.column == COLUMN_GEOMETRY:
-            value = change.new or change.old
-            gpkg_geom = str(value) if value is not None else None
-        elif change.column == COLUMN_ROAD_ID:
-            value = change.new or change.old
-            road_id = int(value) if value is not None else None
-        elif change.column == COLUMN_PLUGIN_SCORE:
-            value = change.new or change.old
-            plugin_score = float(value) if value is not None else None
-        elif change.column == COLUMN_PLUGIN_GEOCODER:
-            value = change.new or change.old
-            plugin_geoconder = str(value) if value is not None else None
+    return (
+        int(address_id) if address_id is not None else None,
+        int(road_id) if road_id is not None else None,
+        str(gpkg_geom) if gpkg_geom is not None else None,
+        float(plugin_score) if plugin_score is not None else None,
+        str(plugin_geoconder) if plugin_geoconder is not None else None,
+    )
 
-    return address_id, road_id, gpkg_geom, plugin_score, plugin_geoconder
+
+def extract_odonimo(entry_dict: GeodiffEntryDict) -> str | None:
+    """Extract the road name (ODONIMO) from a geodiff entry.
+
+    Args:
+        entry_dict: Geodiff entry changes keyed by column name
+
+    Returns:
+        The road name, or None if the entry has no ODONIMO value
+    """
+    odonimo = entry_dict.value(COLUMN_NAME_ODONIMO)
+    return str(odonimo) if odonimo is not None else None
+
+
+def cli_value(entry_dict: GeodiffEntryDict, name: str) -> str | None:
+    """Return a column value of a geodiff entry formatted as a CLI argument.
+
+    Integral floats are rendered without decimals (12.0 -> "12") and empty
+    strings are treated as missing.
+
+    Args:
+        entry_dict: Geodiff entry changes keyed by column name
+        name: Column name
+
+    Returns:
+        The value as a string, or None if missing or empty
+    """
+    value = entry_dict.value(name)
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value).strip()
+    return text or None
+
+
+# ============================================================================
+# ANNCSU CLI operations
+# ============================================================================
+
+
+def query_anncsu_record(
+    address_id: int,
+    cli_runner: CliRunnerProtocol,
+    cli_app: Any,
+    logger: LoggerProtocol,
+) -> dict[str, Any] | None:
+    """Query ANNCSU for the single access record identified by address_id.
+
+    Args:
+        address_id: ANNCSU progressivo accesso (prognazacc)
+        cli_runner: CLI runner instance
+        cli_app: ANNCSU CLI app
+        logger: Logger for output
+
+    Returns:
+        The ANNCSU record, or None if the query failed or did not return exactly one record
+    """
+    # get anncsu data basing on address_id
+    # response = anncsu_sdk.queryparam.prognazacc_get_query_param(
+    #     prognazacc=f"{address_id}",
+    # )
+    commands = [
+        "pa",
+        "accesso",
+        "--prognazacc",
+        str(address_id) if address_id else "",
+        "--production",
+        "--token-endpoint",
+        TOKEN_ENDPOINT,
+        "--json",
+    ]
+    command_string = " ".join(commands)
+    logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
+
+    # run CLI command to query existing record in ANNCSU based on address_id
+    response = cli_runner.invoke(
+        cli_app,
+        commands,
+    )
+    if response.exit_code != 0:
+        logger.error(
+            f"Failed to query ANNCSU for address_id={address_id}: {response.output} - exit code {response.exit_code}"
+        )
+        return None
+
+    json_data = json.loads(response.output)
+    if len(json_data) == 0:
+        logger.warn(f"No ANNCSU record found for address_id={address_id}; skipping update")
+        return None
+    if len(json_data) > 1:
+        logger.warn(f"Multiple ANNCSU records found for address_id={address_id}; skipping update")
+        return None
+    return json_data[0]
+
+
+def query_anncsu_road(
+    odonimo: str | None,
+    codice_comune: str,
+    cli_runner: CliRunnerProtocol,
+    cli_app: Any,
+    logger: LoggerProtocol,
+) -> dict[str, Any] | None:
+    """Query ANNCSU for the road (odonimo) matching a road name in a municipality.
+
+    The ANNCSU search is a partial match on the name, so when more than one
+    road is returned the one whose name matches exactly (case insensitive,
+    with or without the DUG e.g. "VIA") is selected.
+
+    Args:
+        odonimo: Road name to look for (e.g. "VIA ROMA")
+        codice_comune: Codice Belfiore of the municipality
+        cli_runner: CLI runner instance
+        cli_app: ANNCSU CLI app
+        logger: Logger for output
+
+    Returns:
+        The ANNCSU road record (with "prognaz", "dug", "denomuff", ...), or None
+        if the query failed or no single road matches
+    """
+    odonimo = odonimo.strip() if odonimo else ""
+    if not odonimo:
+        logger.warn("Empty odonimo; skipping ANNCSU road query")
+        return None
+
+    # the CLI expects the (partial) road name base64 encoded
+    denom = base64.b64encode(odonimo.encode("utf-8")).decode("ascii")
+    commands = [
+        "pa",
+        "odonimo",
+        "--codcom",
+        codice_comune,
+        "--denom",
+        denom,
+        "--production",
+        "--token-endpoint",
+        TOKEN_ENDPOINT,
+        "--json",
+    ]
+    command_string = " ".join(commands)
+    logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
+
+    # run CLI command to search the road in ANNCSU based on its name
+    # NOTE: the CLI exits with code 1 also when no road is found
+    response = cli_runner.invoke(
+        cli_app,
+        commands,
+    )
+    if response.exit_code != 0:
+        logger.warn(
+            f"No ANNCSU road found for odonimo={odonimo!r} in codcom={codice_comune}: {response.output} - exit code {response.exit_code}"
+        )
+        return None
+
+    try:
+        json_data = json.loads(response.output)
+    except json.JSONDecodeError as exc:
+        logger.error(f"Invalid ANNCSU road query output for odonimo={odonimo!r}: {exc}")
+        return None
+    if len(json_data) == 0:
+        logger.warn(f"No ANNCSU road found for odonimo={odonimo!r} in codcom={codice_comune}")
+        return None
+    if len(json_data) == 1:
+        return json_data[0]
+
+    # multiple partial matches: keep the exact ones
+    wanted = odonimo.casefold()
+    exact = [
+        road
+        for road in json_data
+        if wanted
+        in {
+            (road.get("denomuff") or "").strip().casefold(),
+            f"{road.get('dug') or ''} {road.get('denomuff') or ''}".strip().casefold(),
+        }
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    logger.warn(
+        f"{len(json_data)} ANNCSU roads found for odonimo={odonimo!r} in codcom={codice_comune} "
+        f"({len(exact)} exact matches); skipping"
+    )
+    return None
+
+
+def update_coordinates(
+    entry_dict: GeodiffEntryDict,
+    address_id: int,
+    x: float,
+    y: float,
+    settings: SettingsProtocol,
+    cli_runner: CliRunnerProtocol,
+    cli_app: Any,
+    logger: LoggerProtocol,
+) -> bool:
+    """Update the coordinates of an existing ANNCSU access via CLI.
+
+    The update is skipped if the ANNCSU coordinates are already within
+    settings.coordinate_distance_threshold of the new ones.
+
+    Args:
+        entry_dict: Geodiff entry being processed, with its changes keyed by column name
+        address_id: ANNCSU progressivo accesso
+        x: New X coordinate
+        y: New Y coordinate
+        settings: Application settings
+        cli_runner: CLI runner instance
+        cli_app: ANNCSU CLI app
+        logger: Logger for output
+
+    Returns:
+        True if the update succeeded or was not needed, False otherwise
+    """
+    action = entry_dict.type
+    logger.info(
+        f"{action} {len(entry_dict.changes)} column values in {entry_dict.table} with PK: address_id={address_id}"
+    )
+
+    # check if record exists in ANNCSU before updating
+    anncsu_record = query_anncsu_record(address_id, cli_runner, cli_app, logger)
+    if anncsu_record is None:
+        return False
+
+    # get anncsu coordinate to check if they are been modified
+    # if coordinates are the same, skip the update to avoid unnecessary CLI calls
+    coord_x = anncsu_record["coordX"]
+    coord_y = anncsu_record["coordY"]
+    logger.info(
+        f"{action} found ANNCSU record for address_id={address_id} with coordinates: coordX={coord_x}, coordY={coord_y}"
+    )
+
+    # quota = anncsu_record.quota
+    if coord_x and coord_y:
+        # check if coordinates are valid numbers
+        try:
+            coord_x = float(coord_x)
+            coord_y = float(coord_y)
+        except (TypeError, ValueError):
+            logger.warn(
+                f"Invalid original ANNCSU coordinates for address_id={address_id}: coordX={coord_x}, coordY={coord_y}; skipping update"
+            )
+        else:
+            # if valid numbers, check if they are the same of the coordinates to update,
+            # if they are the same skip the update to avoid unnecessary CLI calls
+            if (
+                abs(x - coord_x) <= settings.coordinate_distance_threshold
+                and abs(y - coord_y) <= settings.coordinate_distance_threshold
+            ):
+                logger.info(f"Coordinates for address_id={address_id} are the same in ANNCSU; skipping update")
+                return True
+
+    # update coordinates via CLI
+    logger.info(f"{action} ANNCSU record for address_id={address_id} with coordinates: coordX={x:.9f}, coordY={y:.9f}")
+    commands = [
+        "coordinate",
+        "update",
+        "--production",
+        "--codcom",
+        settings.codice_comune,
+        "--progr-civico",
+        str(address_id) if address_id else "",
+        "--x",
+        f"{x:.9f}",
+        "--y",
+        f"{y:.9f}",
+        "--metodo",
+        "4",  # TODO: define a method to determine the update method (e.g., based on entry type or other criteria)
+        "--token-endpoint",
+        TOKEN_ENDPOINT,
+        "--json",
+    ]
+    command_string = " ".join(commands)
+    logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
+
+    # run CLI command to update coordinates
+    result = cli_runner.invoke(
+        cli_app,
+        commands,
+    )
+    if result.exit_code != 0:
+        logger.error(f"ANNCSU CLI coordinate update failed: {result.output} - exit code {result.exit_code}")
+        return False
+    logger.info(f"ANNCSU CLI coordinate update succeeded: {result.output}")
+    return True
+
+
+def insert_address(
+    entry_dict: GeodiffEntryDict,
+    address_id: int,
+    x: float,
+    y: float,
+    settings: SettingsProtocol,
+    cli_runner: CliRunnerProtocol,
+    cli_app: Any,
+    logger: LoggerProtocol,
+) -> bool:
+    """Insert a new ANNCSU access via CLI.
+
+    A negative address_id marks a record that does not exist yet in ANNCSU
+    and is not handled yet. Otherwise the road (ODONIMO) is looked up in
+    ANNCSU and the accesso is inserted with "accesso insert", taking the
+    codice comune, progressivo nazionale and civico data from the entry.
+
+    Args:
+        entry_dict: Changes of the entry keyed by column name
+        address_id: ANNCSU progressivo accesso (negative for new records)
+        x: X coordinate
+        y: Y coordinate
+        settings: Application settings
+        cli_runner: CLI runner instance
+        cli_app: ANNCSU CLI app
+        logger: Logger for output
+
+    Returns:
+        True if the insert succeeded, False otherwise
+    """
+    # a special case of insert when address_id is negative e.g. it is a new record without an assigned address_id, in this case we have to extract the ODONIMO from the scope database using the road_id and use it as address_id for the CLI call
+    if address_id < 0:
+        logger.info(f"Address ID is negative ({address_id}), means it is a new record")
+    else:
+        logger.warn(f"Address ID is positive ({address_id}), means it is an existing record should be an update")
+        return False
+
+    # need to check that the address exists in ANNCSU before attempting to insert
+    # address is looked by name
+    odonimo = extract_odonimo(entry_dict)
+    logger.info(f"Checking if road exists in ANNCSU for odonimo={odonimo!r}")
+    road = query_anncsu_road(odonimo, settings.codice_comune, cli_runner, cli_app, logger)
+    if road is None:
+        logger.warn(f"Road odonimo={odonimo!r} not found in ANNCSU; skipping insert for address_id={address_id}")
+        return False
+    logger.debug(f"Queried ANNCSU road: {road}")
+    logger.info(f"Found ANNCSU road prognaz={road.get('prognaz')} for odonimo={odonimo!r}")
+
+    # do insert basing on the found ANNCSU road and the provided entry data
+    codcom = cli_value(entry_dict, COLUMN_NAME_CODICE_COMUNE) or settings.codice_comune
+    prognaz = str(road["prognaz"]) if road.get("prognaz") else None
+    if prognaz is None:
+        logger.warn(f"No progressivo nazionale for odonimo={odonimo!r}; skipping insert for address_id={address_id}")
+        return False
+
+    # exactly one of numero or metrico is required
+    numero = cli_value(entry_dict, COLUMN_NAME_CIVICO)
+    metrico = cli_value(entry_dict, COLUMN_NAME_METRICO)
+    if (numero is None) == (metrico is None):
+        logger.warn(
+            f"Exactly one of {COLUMN_NAME_CIVICO}={numero!r} or {COLUMN_NAME_METRICO}={metrico!r} is required; "
+            f"skipping insert for address_id={address_id}"
+        )
+        return False
+
+    # only numero or metric are allowed, not both
+    if numero is not None and metrico is not None:
+        logger.warn(
+            f"Both {COLUMN_NAME_CIVICO}={numero!r} and {COLUMN_NAME_METRICO}={metrico!r} are provided; "
+            f"skipping insert for address_id={address_id}"
+        )
+        return False
+
+    # prepare command
+    commands = [
+        "accesso",
+        "insert",
+        "--production",
+        "--codcom",
+        codcom,
+        "--prognaz",
+        prognaz,
+    ]
+    optional_args = [
+        ("--numero", numero),
+        ("--metrico", metrico),
+        ("--esponente", cli_value(entry_dict, COLUMN_NAME_ESPONENTE)),
+        ("--specificita", cli_value(entry_dict, COLUMN_NAME_SPECIFICITA)),
+        ("--codice-civico-comunale", cli_value(entry_dict, COLUMN_NAME_CODICE_COMUNALE_ACCESSO)),
+        ("--coord-x", f"{x:.9f}"),
+        ("--coord-y", f"{y:.9f}"),
+        ("--coord-z", cli_value(entry_dict, COLUMN_NAME_QUOTA)),
+        ("--metodo", cli_value(entry_dict, COLUMN_NAME_METODO) or DEFAULT_METODO),
+    ]
+    for option, value in optional_args:
+        if value is not None:
+            commands.extend([option, value])
+    commands.extend(["--token-endpoint", TOKEN_ENDPOINT, "--json"])
+
+    command_string = " ".join(commands)
+    logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
+
+    # in dry run mode (ANNCSU_UPDATE_DRY_RUN) only log the insert without executing it
+    if settings.dry_run:
+        logger.info(f"[DRY RUN] would insert ANNCSU accesso for address_id={address_id}: {command_string}")
+        return True
+
+    # run CLI command to insert the new accesso
+    result = cli_runner.invoke(
+        cli_app,
+        commands,
+    )
+    if result.exit_code != 0:
+        logger.error(f"ANNCSU CLI accesso insert failed: {result.output} - exit code {result.exit_code}")
+        return False
+    logger.info(f"ANNCSU CLI accesso insert succeeded: {result.output}")
+    return True
+
+
+def delete_address(
+    entry_dict: GeodiffEntryDict,
+    address_id: int,
+    settings: SettingsProtocol,
+    cli_runner: CliRunnerProtocol,
+    cli_app: Any,
+    logger: LoggerProtocol,
+) -> bool:
+    """Delete an ANNCSU access via CLI.
+
+    Args:
+        entry_dict: Geodiff entry being processed, with its changes keyed by column name
+        address_id: ANNCSU progressivo accesso
+        settings: Application settings
+        cli_runner: CLI runner instance
+        cli_app: ANNCSU CLI app
+        logger: Logger for output
+
+    Returns:
+        True if the delete succeeded, False otherwise
+    """
+    logger.info(f"Delete {len(entry_dict.changes)} values from {entry_dict.table} with PK: address_id={address_id}")
+    # TODO: delete when sdk or cli available to delete an existing record
+    logger.warn(f"!!! Delete action is not implemented yet; skipping entry: {entry_dict} !!!")
+    return False
 
 
 def process_entry(
     entry: GeodiffEntry,
+    schema: GeodiffSchema,
     settings: SettingsProtocol,
     cli_runner: CliRunnerProtocol,
     cli_app: Any,
@@ -276,6 +729,7 @@ def process_entry(
 
     Args:
         entry: GeodiffEntry to process
+        schema: Geodiff schema mapping column names to column indices
         settings: Application settings
         cli_runner: CLI runner instance
         cli_app: ANNCSU CLI app
@@ -289,8 +743,15 @@ def process_entry(
     action = entry.type
     table = entry.table
 
+    # map the entry changes to column names (also validates the entry type)
+    try:
+        entry_dict = GeodiffEntryDict.from_entry(entry, schema)
+    except ValueError as exc:
+        logger.error(f"Invalid geodiff entry: {exc}; skipping entry: {entry}")
+        return False
+
     # Extract relevant data from entry changes that have to exist
-    address_id, road_id, gpkg_geom, plugin_score, plugin_geoconder = extract_entry_data(entry)
+    address_id, road_id, gpkg_geom, plugin_score, plugin_geoconder = extract_entry_data(entry_dict)
     if address_id is None:
         logger.warn(f"Entry has no address_id; skipping entry: {entry}")
         return False
@@ -327,124 +788,12 @@ def process_entry(
 
     logger.info(f"Preparing ANNCSU CLI call: action={action} table={table} address_id={address_id} road_id={road_id}")
 
-    # a special case of insert when address_id is negative e.g. it is a new record without an assigned address_id, in this case we have to extract the ODONIMO from the scope database using the road_id and use it as address_id for the CLI call
-    if action == "insert" and address_id < 0:
-        logger.info(f"Address ID is negative ({address_id}), means it is a new record")
-        # TODO: do insert when sdk or cli available to create a new record and get the assigned address_id
-        logger.warn(f"Insert action with negative address_id is not implemented yet; skipping entry: {entry}")
-        return False
-
-    # manage insert/update of coordinates in ANNCSU via CLI calls, based on the geodiff entry type
-    if action == "insert" or action == "update":
-        logger.info(f"{action} {len(entry.changes)} column values in {table} with PK: address_id={address_id}")
-
-        # check if record exists in ANNCSU before deciding to insert or update
-        # get anncsu data basing on address_id
-        # response = anncsu_sdk.queryparam.prognazacc_get_query_param(
-        #     prognazacc=f"{address_id}",
-        # )
-        commands = [
-            "pa",
-            "accesso",
-            "--prognazacc",
-            str(address_id) if address_id else "",
-            "--production",
-            "--token-endpoint",
-            "https://auth.interop.pagopa.it/token.oauth2",
-            "--json",
-        ]
-        command_string = " ".join(commands)
-        logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
-
-        # run CLI command to query existing record in ANNCSU based on address_id
-        response = cli_runner.invoke(
-            cli_app,
-            commands,
-        )
-        if response.exit_code != 0:
-            logger.error(
-                f"Failed to query ANNCSU for address_id={address_id}: {response.output} - exit code {response.exit_code}"
-            )
-            return False
-
-        json_data = json.loads(response.output)
-        if len(json_data) == 0:
-            logger.warn(f"No ANNCSU record found for address_id={address_id}; skipping update")
-            return False
-        if len(json_data) > 1:
-            logger.warn(f"Multiple ANNCSU records found for address_id={address_id}; skipping update")
-            return False
-        anncsu_record = json_data[0]
-
-        # get anncsu coordinate to check if they are been modified
-        # if coordinates are the same, skip the update to avoid unnecessary CLI calls
-        coord_x = anncsu_record["coordX"]
-        coord_y = anncsu_record["coordY"]
-        logger.info(
-            f"{action} found ANNCSU record for address_id={address_id} with coordinates: coordX={coord_x}, coordY={coord_y}"
-        )
-
-        # quota = anncsu_record.quota
-        if coord_x and coord_y:
-            # check if coordinates are valid numbers
-            try:
-                coord_x = float(coord_x)
-                coord_y = float(coord_y)
-            except (TypeError, ValueError):
-                logger.warn(
-                    f"Invalid original ANNCSU coordinates for address_id={address_id}: coordX={coord_x}, coordY={coord_y}; skipping update"
-                )
-            else:
-                # if valid numbers, check if they are the same of the coordinates to update,
-                # if they are the same skip the update to avoid unnecessary CLI calls
-                if (
-                    abs(x - coord_x) <= settings.coordinate_distance_threshold
-                    and abs(y - coord_y) <= settings.coordinate_distance_threshold
-                ):
-                    logger.info(f"Coordinates for address_id={address_id} are the same in ANNCSU; skipping update")
-                    return True
-
-        # update coordinates via CLI
-        logger.info(
-            f"{action} ANNCSU record for address_id={address_id} with coordinates: coordX={x:.9f}, coordY={y:.9f}"
-        )
-        commands = [
-            "coordinate",
-            "update",
-            "--production",
-            "--codcom",
-            settings.codice_comune,
-            "--progr-civico",
-            str(address_id) if address_id else "",
-            "--x",
-            f"{x:.9f}",
-            "--y",
-            f"{y:.9f}",
-            "--metodo",
-            "4",  # TODO: define a method to determine the update method (e.g., based on entry type or other criteria)
-            "--token-endpoint",
-            "https://auth.interop.pagopa.it/token.oauth2",
-            "--json",
-        ]
-        command_string = " ".join(commands)
-        logger.debug(f"Invoking ANNCSU CLI with command: {command_string}")
-
-        # run CLI command to update coordinates
-        result = cli_runner.invoke(
-            cli_app,
-            commands,
-        )
-        if result.exit_code != 0:
-            logger.error(f"ANNCSU CLI coordinate update failed: {result.output} - exit code {result.exit_code}")
-            return False
-        logger.info(f"ANNCSU CLI coordinate update succeeded: {result.output}")
-        return True
-
+    if action == "insert":
+        return insert_address(entry_dict, address_id, x, y, settings, cli_runner, cli_app, logger)
+    elif action == "update":
+        return update_coordinates(entry_dict, address_id, x, y, settings, cli_runner, cli_app, logger)
     elif action == "delete":
-        logger.info(f"Delete {len(entry.changes)} values from {table}")
-        # TODO: implement delete CLI call
-        return True
-
+        return delete_address(entry_dict, address_id, settings, cli_runner, cli_app, logger)
     else:
         logger.warn(f"Unknown action type: {action}")
         return False
@@ -452,6 +801,7 @@ def process_entry(
 
 def process_all_entries(
     geodiff_file: GeodiffFile,
+    schema: GeodiffSchema,
     settings: SettingsProtocol,
     cli_runner: CliRunnerProtocol,
     cli_app: Any,
@@ -464,6 +814,7 @@ def process_all_entries(
 
     Args:
         geodiff_file: Parsed geodiff file
+        schema: Geodiff schema mapping column names to column indices
         settings: Application settings
         cli_runner: CLI runner instance
         cli_app: ANNCSU CLI app
@@ -478,6 +829,7 @@ def process_all_entries(
     for entry in geodiff_file.geodiff:
         success = process_entry(
             entry=entry,
+            schema=schema,
             settings=settings,
             cli_runner=cli_runner,
             cli_app=cli_app,
@@ -552,22 +904,20 @@ def load_geodiff_report(geodiff_report: str, logger: LoggerProtocol) -> GeodiffF
 # ============================================================================
 
 
-def load_geodiff_schema(geodiff_schema: str, logger: LoggerProtocol) -> bool:
-    """Set the COLUMN_* index globals from a geodiff schema.
+def load_geodiff_schema(geodiff_schema: str, logger: LoggerProtocol) -> GeodiffSchema | None:
+    """Load a geodiff schema.
 
     The schema is a JSON list of {"name": <column name>, "column": <index>}
-    objects. Each COLUMN_* global is looked up by its COLUMN_NAME_* value;
-    columns not present in the schema keep their default index.
+    objects. A warning is logged for each COLUMN_NAME_* column used by the
+    action that is not present in the schema.
 
     Args:
         geodiff_schema: File path or JSON text of the geodiff schema
         logger: Logger for output
 
     Returns:
-        True if the schema was loaded, False otherwise
+        The parsed schema, or None if it could not be loaded
     """
-    global COLUMN_ADDRESS_ID, COLUMN_GEOMETRY, COLUMN_ROAD_ID
-    global COLUMN_PLUGIN_SCORE, COLUMN_PLUGIN_GEOCODER
 
     # Try as file path first, then fall back to JSON text
     try:
@@ -586,26 +936,17 @@ def load_geodiff_schema(geodiff_schema: str, logger: LoggerProtocol) -> bool:
         name_to_index = {item["name"]: int(item["column"]) for item in schema}
     except Exception as exc:
         logger.error(f"Failed to parse geodiff_schema: {exc}")
-        return False
+        return None
 
-    def lookup(name: str, default: int) -> int:
+    for name in COLUMN_NAMES:
         if name not in name_to_index:
-            logger.warn(f"Column '{name}' not found in geodiff schema; using default index {default}")
-            return default
-        return name_to_index[name]
-
-    COLUMN_ADDRESS_ID = lookup(COLUMN_NAME_ADDRESS_ID, COLUMN_ADDRESS_ID)
-    COLUMN_GEOMETRY = lookup(COLUMN_NAME_GEOMETRY, COLUMN_GEOMETRY)
-    COLUMN_ROAD_ID = lookup(COLUMN_NAME_ROAD_ID, COLUMN_ROAD_ID)
-    COLUMN_PLUGIN_SCORE = lookup(COLUMN_NAME_PLUGIN_SCORE, COLUMN_PLUGIN_SCORE)
-    COLUMN_PLUGIN_GEOCODER = lookup(COLUMN_NAME_PLUGIN_GEOCODER, COLUMN_PLUGIN_GEOCODER)
+            logger.warn(f"Column '{name}' not found in geodiff schema; its value will be missing from every entry")
 
     logger.info(
-        f"Column indices: address_id={COLUMN_ADDRESS_ID}, geometry={COLUMN_GEOMETRY}, "
-        f"road_id={COLUMN_ROAD_ID}, plugin_score={COLUMN_PLUGIN_SCORE}, "
-        f"plugin_geocoder={COLUMN_PLUGIN_GEOCODER}"
+        "Column indices: "
+        + ", ".join(f"{name}={name_to_index[name]}" for name in COLUMN_NAMES if name in name_to_index)
     )
-    return True
+    return schema
 
 
 # ============================================================================
@@ -640,7 +981,7 @@ def authenticate_cli(
                 "--api",
                 api_type,
                 "--token-endpoint",
-                "https://auth.interop.pagopa.it/token.oauth2",
+                TOKEN_ENDPOINT,
             ],
         )
         if result.exit_code != 0:
@@ -695,8 +1036,9 @@ def run_action(
     logger.info("Update ANNCSU DB from geodiff report...")
     logger.info(f"Using codice_comune: \033[36;1m{settings.codice_comune}\033[0m")
 
-    # Set column indices from geodiff schema
-    if not load_geodiff_schema(geodiff_schema, logger):
+    # Load geodiff schema to map entry columns to names
+    schema = load_geodiff_schema(geodiff_schema, logger)
+    if schema is None:
         logger.error("Could not load geodiff schema; aborting")
         return False
 
@@ -724,6 +1066,7 @@ def run_action(
     logger.info("ANNCSU CLI update based on geodiff report JSON...")
     results = process_all_entries(
         geodiff_file=geodiff_obj,
+        schema=schema,
         settings=settings,
         cli_runner=cli_runner,
         cli_app=cli_app,

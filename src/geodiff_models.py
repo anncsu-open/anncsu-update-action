@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 
 Primitive = Union[int, float, str, bool, None]
 
+# geodiff schema: list of {"name": <column name>, "column": <index>}
+GeodiffSchema = List[Dict[str, Any]]
+
 
 class Change(BaseModel):
     column: int
@@ -20,6 +23,53 @@ class GeodiffEntry(BaseModel):
     table: str
     type: Literal["insert", "update", "delete"]
     changes: List[Change]
+
+
+class GeodiffEntryDict(BaseModel):
+    """A GeodiffEntry with its changes keyed by column name instead of column index."""
+
+    table: str
+    type: Literal["insert", "update", "delete"]
+    changes: Dict[str, Change]
+
+    @classmethod
+    def from_entry(cls, entry: GeodiffEntry, schema: GeodiffSchema) -> "GeodiffEntryDict":
+        """Build the dict from a GeodiffEntry and a geodiff schema.
+
+        Args:
+            entry: GeodiffEntry whose changes are keyed by column index
+            schema: Geodiff schema as a list of {"name": <column name>, "column": <index>}
+
+        Returns:
+            GeodiffEntryDict with the entry table, type and each column name mapped to its Change
+
+        Raises:
+            ValueError: If a change refers to a column not present in the schema
+        """
+        index_to_name = {int(item["column"]): item["name"] for item in schema}
+        changes: Dict[str, Change] = {}
+        for change in entry.changes:
+            if change.column not in index_to_name:
+                raise ValueError(f"Column {change.column} of table {entry.table!r} not found in geodiff schema")
+            changes[index_to_name[change.column]] = change
+        return cls(table=entry.table, type=entry.type, changes=changes)
+
+    def to_dict(self) -> Dict[str, Change]:
+        return self.changes
+
+    def value(self, name: str) -> Optional[Primitive]:
+        """Return the new value of a column, or the old one if there is no new value.
+
+        Args:
+            name: Column name
+
+        Returns:
+            The column value, or None if the column is not in the entry
+        """
+        change = self.changes.get(name)
+        if change is None:
+            return None
+        return change.new if change.new is not None else change.old
 
 
 class GeodiffFile(BaseModel):

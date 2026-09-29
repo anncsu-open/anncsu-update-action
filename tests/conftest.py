@@ -87,7 +87,8 @@ class MockCliRunner:
     """Mock CLI runner that captures invocations.
 
     Auto-detects ANNCSU query calls (args containing "accesso") and returns
-    query_result for those when set, otherwise falls back to result.
+    query_result for those when set, and road queries (args containing
+    "odonimo") returning odonimo_result when set, otherwise falls back to result.
     results_sequence overrides all auto-detection when provided.
     """
 
@@ -96,6 +97,7 @@ class MockCliRunner:
     results_sequence: list[MockCliResult] = field(default_factory=list)
     _call_count: int = 0
     query_result: "MockCliResult | None" = None
+    odonimo_result: "MockCliResult | None" = None
 
     def invoke(self, app: Any, args: list[str]) -> MockCliResult:
         self.invocations.append((app, args))
@@ -105,6 +107,8 @@ class MockCliRunner:
             return result
         if self.query_result is not None and "accesso" in args:
             return self.query_result
+        if self.odonimo_result is not None and "odonimo" in args:
+            return self.odonimo_result
         return self.result
 
 
@@ -214,10 +218,12 @@ def mock_cli_runner() -> MockCliRunner:
     """Create a mock CLI runner with auto-detection for ANNCSU query calls.
 
     - "pa accesso" calls return JSON with different coords (to trigger updates)
+    - "pa odonimo" calls return a single road (so inserts find their road)
     - all other calls (auth, coordinate update) return exit_code=0 with "OK"
     """
     return MockCliRunner(
         query_result=MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]'),
+        odonimo_result=MockCliResult(exit_code=0, output='[{"prognaz": "5002", "dug": "VIA", "denomuff": "ROMA"}]'),
     )
 
 
@@ -384,10 +390,11 @@ def geodiff_insert_json():
                     "table": "simple",
                     "type": "insert",
                     "changes": [
-                        {"column": 0, "new": 4},
+                        {"column": 0, "new": -4},  # new record
                         {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
                         {"column": 4, "new": 401},  # road_id should be integer
-                        {"column": 3, "new": "my new point A"},  # other field
+                        {"column": 3, "new": "my new point A"},  # ODONIMO
+                        {"column": 5, "new": 12},  # CIVICO
                     ],
                 }
             ]
@@ -414,9 +421,11 @@ def geodiff_multiple_entries_json():
                     "table": "addresses",
                     "type": "insert",
                     "changes": [
-                        {"column": 0, "new": 1002},
+                        {"column": 0, "new": -1002},  # new record
                         {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
+                        {"column": 3, "new": "VIA ROMA"},  # ODONIMO
                         {"column": 4, "new": 5002},
+                        {"column": 5, "new": 3},  # CIVICO
                     ],
                 },
                 {
@@ -467,7 +476,7 @@ def geodiff_action_report_json():
                         "table": "addresses",
                         "type": "insert",
                         "changes": [
-                            {"column": 0, "new": 1002},
+                            {"column": 0, "new": -1002},  # new record
                             {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
                             {"column": 4, "new": 5002},
                         ],
@@ -556,9 +565,9 @@ def geodiff_insert_report_file(tmp_path):
                 "table": "test_layer",
                 "type": "insert",
                 "changes": [
-                    {"column": 0, "new": 6},
+                    {"column": 0, "new": -6},  # new record
                     {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
-                    {"column": 3, "new": "Inserted Point F"},  # other field
+                    {"column": 3, "new": "Inserted Point F"},  # ODONIMO
                     {"column": 4, "new": 606},  # road_id should be integer
                     {"column": 5, "new": 6},
                 ],
@@ -567,9 +576,9 @@ def geodiff_insert_report_file(tmp_path):
                 "table": "test_layer",
                 "type": "insert",
                 "changes": [
-                    {"column": 0, "new": 7},
+                    {"column": 0, "new": -7},  # new record
                     {"column": 1, "new": "R1AAAeYQAAABAQAAAPBDGq/kSde/+HS2Feb94T8="},
-                    {"column": 3, "new": "Inserted Point G"},  # other field
+                    {"column": 3, "new": "Inserted Point G"},  # ODONIMO
                     {"column": 4, "new": 707},  # road_id should be integer
                     {"column": 5, "new": 7},
                 ],
@@ -602,9 +611,11 @@ def geodiff_mixed_report_file(tmp_path):
                 "table": "test_layer",
                 "type": "insert",
                 "changes": [
-                    {"column": 0, "new": 10},
+                    {"column": 0, "new": -10},  # new record
                     {"column": 1, "new": "R1AAAeYQAAABAQAAAFyu1BOp6um/PoMqH8N01j8="},
+                    {"column": 3, "new": "VIA ROMA"},  # ODONIMO
                     {"column": 4, "new": 1010},
+                    {"column": 5, "new": 10},  # CIVICO
                 ],
             },
             {
@@ -1142,24 +1153,6 @@ def DummyCliRunner():
 # ============================================================================
 
 
-@pytest.fixture(autouse=True)
-def reset_column_indices():
-    """Restore main_with_cli COLUMN_* globals, since load_geodiff_schema mutates them."""
-    import main_with_cli
-
-    names = [
-        "COLUMN_ADDRESS_ID",
-        "COLUMN_GEOMETRY",
-        "COLUMN_ROAD_ID",
-        "COLUMN_PLUGIN_SCORE",
-        "COLUMN_PLUGIN_GEOCODER",
-    ]
-    saved = {name: getattr(main_with_cli, name) for name in names}
-    yield
-    for name, value in saved.items():
-        setattr(main_with_cli, name, value)
-
-
 @pytest.fixture
 def geodiff_schema_json():
     """Geodiff schema matching the column layout used by the test geodiff reports."""
@@ -1170,10 +1163,18 @@ def geodiff_schema_json():
             {"name": "fid", "column": 2},
             {"name": "ODONIMO", "column": 3},
             {"name": "PROGRESSIVO_NAZIONALE", "column": 4},
+            {"name": "CIVICO", "column": 5},
+            {"name": "ESPONENTE", "column": 6},
             {"name": "PLUGIN_SCORE", "column": 20},
             {"name": "PLUGIN_GEOCODER", "column": 21},
         ]
     )
+
+
+@pytest.fixture
+def geodiff_schema(geodiff_schema_json):
+    """Parsed geodiff schema matching the column layout used by the test geodiff reports."""
+    return json.loads(geodiff_schema_json)
 
 
 @pytest.fixture

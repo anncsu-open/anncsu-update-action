@@ -72,6 +72,7 @@ class TestProcessEntriesIntegration:
 
     def test_process_update_entries_from_file(
         self,
+        geodiff_schema,
         geodiff_update_report_file,
         mock_settings,
         mock_cli_runner,
@@ -92,6 +93,7 @@ class TestProcessEntriesIntegration:
 
         results = process_all_entries(
             geodiff_file=geodiff_file,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -108,6 +110,7 @@ class TestProcessEntriesIntegration:
 
     def test_process_delete_entries_from_file(
         self,
+        geodiff_schema,
         geodiff_delete_report_file,
         mock_settings,
         mock_cli_runner,
@@ -124,6 +127,7 @@ class TestProcessEntriesIntegration:
 
         results = process_all_entries(
             geodiff_file=geodiff_file,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -135,11 +139,12 @@ class TestProcessEntriesIntegration:
 
         assert len(results) == 2
         assert all(r.entry_type == "delete" for r in results)
-        # Delete entries with geometry should succeed (delete is TODO, returns True)
-        assert all(r.success for r in results)
+        # Delete is not implemented yet: entries are reported as failed
+        assert not any(r.success for r in results)
 
     def test_process_insert_entries_from_file(
         self,
+        geodiff_schema,
         geodiff_insert_report_file,
         mock_settings,
         mock_cli_runner,
@@ -157,6 +162,7 @@ class TestProcessEntriesIntegration:
 
         results = process_all_entries(
             geodiff_file=geodiff_file,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -168,11 +174,12 @@ class TestProcessEntriesIntegration:
 
         assert len(results) == 2
         assert all(r.entry_type == "insert" for r in results)
-        # Insert entries with geometry should succeed (insert is TODO, returns True)
+        # Insert entries whose road (ODONIMO) is found in ANNCSU update the coordinates
         assert all(r.success for r in results)
 
     def test_process_mixed_entries_from_file(
         self,
+        geodiff_schema,
         geodiff_mixed_report_file,
         mock_settings,
         mock_cli_runner,
@@ -190,6 +197,7 @@ class TestProcessEntriesIntegration:
 
         results = process_all_entries(
             geodiff_file=geodiff_file,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -241,8 +249,8 @@ class TestRunActionIntegration:
             token="test-token",
         )
 
-        assert result is True
-        # Auth call + no CLI calls for delete (TODO)
+        # Delete is not implemented yet: the action fails after authenticating
+        assert result is False
         assert len(mock_cli_runner.invocations) >= 1
 
     def test_run_action_with_insert_report_file(
@@ -279,8 +287,11 @@ class TestRunActionIntegration:
         )
 
         assert result is True
-        # Auth call + no CLI calls for insert (TODO)
-        assert len(mock_cli_runner.invocations) >= 1
+        # Auth call + for each insert: road query and accesso insert
+        commands = [args[:2] for _, args in mock_cli_runner.invocations]
+        assert commands.count(["pa", "odonimo"]) == 2
+        assert commands.count(["accesso", "insert"]) == 2
+        assert commands.count(["coordinate", "update"]) == 0
 
     def test_run_action_with_mixed_report_file(
         self,
@@ -315,9 +326,12 @@ class TestRunActionIntegration:
             token="test-token",
         )
 
-        assert result is True
-        # Auth call + update CLI call
-        assert len(mock_cli_runner.invocations) >= 2
+        # The delete entry is not implemented yet, so the action fails,
+        # but the update entry updates the coordinates and the insert entry is inserted
+        assert result is False
+        commands = [args[:2] for _, args in mock_cli_runner.invocations]
+        assert commands.count(["coordinate", "update"]) == 1
+        assert commands.count(["accesso", "insert"]) == 1
 
     def test_run_action_auth_then_process(
         self,
@@ -349,6 +363,9 @@ class TestRunActionIntegration:
                     return MockCliResult(exit_code=0, output="OK")
                 elif "accesso" in args:
                     return MockCliResult(exit_code=0, output='[{"coordX": 10.0, "coordY": 50.0}]')
+                elif "odonimo" in args:
+                    call_order.append("odonimo")
+                    return MockCliResult(exit_code=0, output='[{"prognaz": "1010", "dug": "VIA", "denomuff": "ROMA"}]')
                 elif "coordinate" in args:
                     call_order.append("coordinate")
                 return MockCliResult(exit_code=0, output="OK")
@@ -370,9 +387,12 @@ class TestRunActionIntegration:
             token="test-token",
         )
 
-        assert result is True
+        # the delete entry is not implemented yet
+        assert result is False
         # Auth should be called first
         assert call_order[0] == "auth"
+        # The insert entry looks up its road
+        assert "odonimo" in call_order
         # Then coordinate update for the update entry
         assert "coordinate" in call_order
 
@@ -796,6 +816,7 @@ class TestPluginSkipIntegration:
 
     def test_process_entries_all_skipped_when_plugin_score_1_and_geocoder_anncsu(
         self,
+        geodiff_schema,
         geodiff_plugin_skip_report_file,
         mock_settings,
         mock_cli_runner,
@@ -817,6 +838,7 @@ class TestPluginSkipIntegration:
 
         results = process_all_entries(
             geodiff_file=geodiff_file,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
@@ -835,6 +857,7 @@ class TestPluginSkipIntegration:
 
     def test_process_entries_not_skipped_when_plugin_conditions_not_met(
         self,
+        geodiff_schema,
         geodiff_plugin_no_skip_report_file,
         mock_settings,
         mock_cli_runner,
@@ -851,6 +874,7 @@ class TestPluginSkipIntegration:
 
         results = process_all_entries(
             geodiff_file=geodiff_file,
+            schema=geodiff_schema,
             settings=mock_settings,
             cli_runner=mock_cli_runner,
             cli_app=mock_cli_app,
