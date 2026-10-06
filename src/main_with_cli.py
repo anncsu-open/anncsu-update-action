@@ -763,7 +763,9 @@ def process_entry(
         return False
 
     # Extract relevant data from entry changes that have to exist
-    address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(entry_dict)
+    address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
+        entry_dict
+    )
     if address_id is None:
         logger.warn(f"Entry has no address_id; skipping entry: {entry}")
         return False
@@ -805,9 +807,7 @@ def process_entry(
     elif action == "update":
         # manage a special case for plugin_sezioni_censimento to
         # do insert instead of update because sezioni_censimento has been added later
-        if (plugin_sezioni_censimento is not None) \
-           and (address_id < 0) \
-           and (road_id is not None and road_id < 0):
+        if (plugin_sezioni_censimento is not None) and (address_id < 0) and (road_id is not None and road_id < 0):
             return insert_address(entry_dict, address_id, x, y, settings, cli_runner, cli_app, logger)
 
         return update_coordinates(entry_dict, address_id, x, y, settings, cli_runner, cli_app, logger)

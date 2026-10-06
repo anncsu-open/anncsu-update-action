@@ -2153,7 +2153,10 @@ class TestInsertAccessoCommand:
         dry_run_logs = [msg for msg in info_messages if msg.startswith("[DRY RUN] would insert ANNCSU accesso")]
         assert len(dry_run_logs) == 1
         assert "address_id=-42" in dry_run_logs[0]
-        assert "accesso insert --production --codcom I501 --prognaz 2000449 --sezione-censimento 9999 --numero 12" in dry_run_logs[0]
+        assert (
+            "accesso insert --production --codcom I501 --prognaz 2000449 --sezione-censimento 9999 --numero 12"
+            in dry_run_logs[0]
+        )
 
     def test_dry_run_setting_skips_insert_even_if_it_would_fail(
         self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger
