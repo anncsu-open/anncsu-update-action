@@ -1167,6 +1167,7 @@ def geodiff_schema_json():
             {"name": "ESPONENTE", "column": 6},
             {"name": "PLUGIN_SCORE", "column": 20},
             {"name": "PLUGIN_GEOCODER", "column": 21},
+            {"name": "PLUGIN_SEZIONI_CENSIMENTO", "column": 22},
         ]
     )
 
@@ -1207,5 +1208,6 @@ def geodiff_real_schema_json():
         "METODO",
         "PLUGIN_SCORE",
         "PLUGIN_GEOCODER",
+        "PLUGIN_SEZIONI_CENSIMENTO",
     ]
     return json.dumps([{"name": name, "column": index} for index, name in enumerate(names)])

@@ -121,7 +121,7 @@ class TestExtractEntryData:
         geodiff = GeodiffFile.from_json_text(geodiff_real_coord_update_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
             GeodiffEntryDict.from_entry(entry, geodiff_schema)
         )
 
@@ -130,12 +130,13 @@ class TestExtractEntryData:
         assert gpkg_geom == "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="
         assert plugin_score is None
         assert plugin_geocoder is None
+        assert plugin_sezioni_censimento is None
 
     def test_extract_entry_data_insert(self, geodiff_schema, geodiff_insert_json):
         geodiff = GeodiffFile.from_json_text(geodiff_insert_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
             GeodiffEntryDict.from_entry(entry, geodiff_schema)
         )
 
@@ -148,7 +149,7 @@ class TestExtractEntryData:
         geodiff = GeodiffFile.from_json_text(geodiff_real_value_update_json)
         entry = geodiff.geodiff[0]
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
             GeodiffEntryDict.from_entry(entry, geodiff_schema)
         )
 
@@ -173,7 +174,7 @@ class TestExtractEntryData:
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
             GeodiffEntryDict.from_entry(entry, geodiff_schema)
         )
 
@@ -195,7 +196,7 @@ class TestExtractEntryData:
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
             GeodiffEntryDict.from_entry(entry, geodiff_schema)
         )
 
@@ -215,7 +216,7 @@ class TestExtractEntryData:
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
             GeodiffEntryDict.from_entry(entry, geodiff_schema)
         )
 
@@ -236,12 +237,28 @@ class TestExtractEntryData:
             ],
         )
 
-        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder = extract_entry_data(
+        address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(
             GeodiffEntryDict.from_entry(entry, geodiff_schema)
         )
 
         assert plugin_score == 1.0
         assert plugin_geocoder == "ANNCSU"
+
+    def test_extract_entry_data_with_sezioni_censimento(self, geodiff_schema):
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(
+            type="update",
+            table="addresses",
+            changes=[
+                Change(column=0, old=99005, new=None),
+                Change(column=22, old=None, new="0580910001"),
+            ],
+        )
+
+        *_, plugin_sezioni_censimento = extract_entry_data(GeodiffEntryDict.from_entry(entry, geodiff_schema))
+
+        assert plugin_sezioni_censimento == "0580910001"
 
 
 # ============================================================================
@@ -1633,7 +1650,10 @@ class TestExtractEntryDataBySchema:
             {"column": 25, "new": "NOMINATIM"},
         )
 
-        expected = (7, 501, "R1AAAQ==", 0.5, "NOMINATIM")
+        test_layout.changes.append(Change(column=22, new="0580910001"))
+        real_layout.changes.append(Change(column=26, new="0580910001"))
+
+        expected = (7, 501, "R1AAAQ==", 0.5, "NOMINATIM", "0580910001")
         assert extract_entry_data(GeodiffEntryDict.from_entry(test_layout, geodiff_schema)) == expected
         real_schema = json.loads(geodiff_real_schema_json)
         assert extract_entry_data(GeodiffEntryDict.from_entry(real_layout, real_schema)) == expected
@@ -1653,7 +1673,7 @@ class TestExtractEntryDataBySchema:
             )
         ).geodiff[0]
 
-        _, _, _, plugin_score, _ = extract_entry_data(GeodiffEntryDict.from_entry(entry, geodiff_schema))
+        _, _, _, plugin_score, _, _ = extract_entry_data(GeodiffEntryDict.from_entry(entry, geodiff_schema))
 
         assert plugin_score == 0.0
 
@@ -1688,6 +1708,108 @@ class TestProcessEntrySchemaMismatch:
         assert mock_cli_runner.invocations == []
         error_messages = [msg for level, msg in mock_logger.messages if level == "error"]
         assert any("Invalid geodiff entry" in msg and "Column 99" in msg for msg in error_messages)
+
+
+class TestProcessEntrySezioniCensimento:
+    """Update entries of records never inserted in ANNCSU (negative ids) carrying
+    PLUGIN_SEZIONI_CENSIMENTO are inserted instead of updated."""
+
+    GEOM = "R1AAAQAAAAABAQAAAAAAAICcwitAAAAAwInzREA="
+
+    def _process(self, changes, schema, settings, runner, cli_app, geodiff, wkb_loader, logger, anncsu_sdk):
+        from types import SimpleNamespace
+
+        entry = SimpleNamespace(type="update", table="civici", changes=[Change(**c) for c in changes])
+        return process_entry(
+            entry=entry,  # type: ignore[arg-type]
+            schema=schema,
+            settings=settings,
+            cli_runner=runner,
+            cli_app=cli_app,
+            anncsu_sdk=anncsu_sdk,
+            geodiff=geodiff,
+            wkb_loader=wkb_loader,
+            logger=logger,
+        )
+
+    def test_update_with_sezioni_and_negative_ids_inserts(
+        self,
+        geodiff_schema,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+    ):
+        changes = [
+            {"column": 0, "old": -42},
+            {"column": 1, "new": self.GEOM},
+            {"column": 3, "old": "VIA ROMA"},
+            {"column": 4, "old": -7},
+            {"column": 5, "old": 12},
+            {"column": 22, "old": None, "new": "0580910001"},
+        ]
+
+        result = self._process(
+            changes,
+            geodiff_schema,
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+            mock_anncsu_consultazione,
+        )
+
+        assert result is True
+        commands = [args for _, args in mock_cli_runner.invocations]
+        assert [c[:2] for c in commands] == [["pa", "odonimo"], ["accesso", "insert"]]
+        insert = commands[1]
+        assert insert[insert.index("--sezione-censimento") + 1] == "0580910001"
+
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            # no PLUGIN_SEZIONI_CENSIMENTO
+            [{"column": 0, "old": -42}, {"column": 4, "old": -7}],
+            # positive address_id: record already in ANNCSU
+            [{"column": 0, "old": 42}, {"column": 4, "old": -7}, {"column": 22, "new": "0580910001"}],
+            # positive road_id
+            [{"column": 0, "old": -42}, {"column": 4, "old": 7}, {"column": 22, "new": "0580910001"}],
+            # road_id not in the changes
+            [{"column": 0, "old": -42}, {"column": 22, "new": "0580910001"}],
+        ],
+    )
+    def test_update_without_special_case_updates_coordinates(
+        self,
+        geodiff_schema,
+        mock_settings,
+        mock_cli_runner,
+        mock_cli_app,
+        mock_geodiff,
+        mock_wkb_loader,
+        mock_logger,
+        mock_anncsu_consultazione,
+        changes,
+    ):
+        self._process(
+            [*changes, {"column": 1, "new": self.GEOM}],
+            geodiff_schema,
+            mock_settings,
+            mock_cli_runner,
+            mock_cli_app,
+            mock_geodiff,
+            mock_wkb_loader,
+            mock_logger,
+            mock_anncsu_consultazione,
+        )
+
+        commands = [args[:2] for _, args in mock_cli_runner.invocations]
+        assert ["accesso", "insert"] not in commands
+        assert ["pa", "odonimo"] not in commands
 
 
 class TestUpdateCoordinates:
@@ -1899,6 +2021,7 @@ class TestInsertAccessoCommand:
             {"column": 17, "new": "ROSSO"},  # SPECIFICITA
             {"column": 22, "new": 120.5},  # QUOTA
             {"column": 23, "new": 2},  # METODO
+            {"column": 26, "new": "0580910001"},  # PLUGIN_SEZIONI_CENSIMENTO
         ]
 
         result, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
@@ -1910,6 +2033,7 @@ class TestInsertAccessoCommand:
             "--production": True,
             "--codcom": "A062",
             "--prognaz": "2000449",
+            "--sezione-censimento": "0580910001",
             "--numero": "12",
             "--esponente": "BIS",
             "--specificita": "ROSSO",
@@ -1952,6 +2076,18 @@ class TestInsertAccessoCommand:
         _, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
 
         assert self._opts(inserts[0])["--numero"] == "12"
+
+    def test_missing_sezione_censimento_defaults_to_9999(
+        self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger
+    ):
+        changes = [{"column": 15, "new": 12}]
+
+        result, inserts = self._run(geodiff_real_schema_json, changes, mock_settings, mock_cli_app, mock_logger)
+
+        assert result is True
+        assert self._opts(inserts[0])["--sezione-censimento"] == "9999"
+        warn_messages = [msg for level, msg in mock_logger.messages if level == "warn"]
+        assert any("No sezione censimento provided" in msg and "address_id=-42" in msg for msg in warn_messages)
 
     def test_codcom_falls_back_to_settings(self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger):
         changes = [{"column": 8, "new": 2000449}, {"column": 15, "new": 12}]
@@ -2017,7 +2153,7 @@ class TestInsertAccessoCommand:
         dry_run_logs = [msg for msg in info_messages if msg.startswith("[DRY RUN] would insert ANNCSU accesso")]
         assert len(dry_run_logs) == 1
         assert "address_id=-42" in dry_run_logs[0]
-        assert "accesso insert --production --codcom I501 --prognaz 2000449 --numero 12" in dry_run_logs[0]
+        assert "accesso insert --production --codcom I501 --prognaz 2000449 --sezione-censimento 9999 --numero 12" in dry_run_logs[0]
 
     def test_dry_run_setting_skips_insert_even_if_it_would_fail(
         self, geodiff_real_schema_json, mock_settings, mock_cli_app, mock_logger

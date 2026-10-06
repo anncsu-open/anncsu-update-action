@@ -86,6 +86,7 @@ COLUMN_NAME_ROAD_ID = "PROGRESSIVO_NAZIONALE"
 COLUMN_NAME_ODONIMO = "ODONIMO"
 COLUMN_NAME_PLUGIN_SCORE = "PLUGIN_SCORE"
 COLUMN_NAME_PLUGIN_GEOCODER = "PLUGIN_GEOCODER"
+COLUMN_NAME_PLUGIN_SEZIONI_CENSIMENTO = "PLUGIN_SEZIONI_CENSIMENTO"
 COLUMN_NAME_CODICE_COMUNE = "CODICE_COMUNE"
 COLUMN_NAME_CIVICO = "CIVICO"
 COLUMN_NAME_METRICO = "METRICO"
@@ -101,6 +102,7 @@ COLUMN_NAMES = (
     COLUMN_NAME_ODONIMO,
     COLUMN_NAME_PLUGIN_SCORE,
     COLUMN_NAME_PLUGIN_GEOCODER,
+    COLUMN_NAME_PLUGIN_SEZIONI_CENSIMENTO,
     COLUMN_NAME_CODICE_COMUNE,
     COLUMN_NAME_CIVICO,
     COLUMN_NAME_METRICO,
@@ -272,14 +274,16 @@ def extract_entry_data(
     road_id = entry_dict.value(COLUMN_NAME_ROAD_ID)
     gpkg_geom = entry_dict.value(COLUMN_NAME_GEOMETRY)
     plugin_score = entry_dict.value(COLUMN_NAME_PLUGIN_SCORE)
-    plugin_geoconder = entry_dict.value(COLUMN_NAME_PLUGIN_GEOCODER)
+    plugin_geocoder = entry_dict.value(COLUMN_NAME_PLUGIN_GEOCODER)
+    plugin_sezioni_censimento = entry_dict.value(COLUMN_NAME_PLUGIN_SEZIONI_CENSIMENTO)
 
     return (
         int(address_id) if address_id is not None else None,
         int(road_id) if road_id is not None else None,
         str(gpkg_geom) if gpkg_geom is not None else None,
         float(plugin_score) if plugin_score is not None else None,
-        str(plugin_geoconder) if plugin_geoconder is not None else None,
+        str(plugin_geocoder) if plugin_geocoder is not None else None,
+        str(plugin_sezioni_censimento) if plugin_sezioni_censimento is not None else None,
     )
 
 
@@ -641,6 +645,12 @@ def insert_address(
         )
         return False
 
+    # get sezione censimento from the entry dict
+    sezione_censimento = cli_value(entry_dict, COLUMN_NAME_PLUGIN_SEZIONI_CENSIMENTO)
+    if sezione_censimento is None:
+        logger.warn(f"No sezione censimento provided; Inserting fake value '9999' for address_id={address_id}")
+        sezione_censimento = "9999"
+
     # prepare command
     commands = [
         "accesso",
@@ -650,6 +660,8 @@ def insert_address(
         codcom,
         "--prognaz",
         prognaz,
+        "--sezione-censimento",
+        sezione_censimento,
     ]
     optional_args = [
         ("--numero", numero),
@@ -751,14 +763,14 @@ def process_entry(
         return False
 
     # Extract relevant data from entry changes that have to exist
-    address_id, road_id, gpkg_geom, plugin_score, plugin_geoconder = extract_entry_data(entry_dict)
+    address_id, road_id, gpkg_geom, plugin_score, plugin_geocoder, plugin_sezioni_censimento = extract_entry_data(entry_dict)
     if address_id is None:
         logger.warn(f"Entry has no address_id; skipping entry: {entry}")
         return False
 
     # Do nothing if record is the original one without changes due to first insert, to avoid unnecessary CLI calls
-    if (plugin_score is not None and plugin_geoconder is not None) and (
-        plugin_score == 1.0 and plugin_geoconder == "ANNCSU" and action == "insert"
+    if (plugin_score is not None and plugin_geocoder is not None) and (
+        plugin_score == 1.0 and plugin_geocoder == "ANNCSU" and action == "insert"
     ):
         logger.info(f"Entry has no changes (PLUGIN_SCORE=1.0 and PLUGIN_GEOCODER=ANNCSU); skipping entry: {entry}")
         return True
@@ -791,6 +803,13 @@ def process_entry(
     if action == "insert":
         return insert_address(entry_dict, address_id, x, y, settings, cli_runner, cli_app, logger)
     elif action == "update":
+        # manage a special case for plugin_sezioni_censimento to
+        # do insert instead of update because sezioni_censimento has been added later
+        if (plugin_sezioni_censimento is not None) \
+           and (address_id < 0) \
+           and (road_id is not None and road_id < 0):
+            return insert_address(entry_dict, address_id, x, y, settings, cli_runner, cli_app, logger)
+
         return update_coordinates(entry_dict, address_id, x, y, settings, cli_runner, cli_app, logger)
     elif action == "delete":
         return delete_address(entry_dict, address_id, settings, cli_runner, cli_app, logger)
